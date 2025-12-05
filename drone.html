@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Pixel Swarm (Duel Mode + Combat)</title>
+    <title>P2P Pixel Swarm (Duel Mode)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     
@@ -50,14 +50,13 @@
             text-transform: uppercase;
         }
         #fight-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0px #000; }
-        #fight-btn:disabled { background-color: #9ca3af; transform: none; box-shadow: none; }
     </style>
 </head>
 <body class="font-pixel">
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">DRONE</h1>
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
         </div>
@@ -75,7 +74,7 @@
         const MAX_SPEED = 1.8; 
         const MAX_FORCE = 0.05; 
 
-        // Physics Constants
+        // Physics
         const PERCEPTION_RADIUS = 50; 
         const SEPARATION_DISTANCE = 25; 
         const SEPARATION_FACTOR = 1.2; 
@@ -85,10 +84,11 @@
         const DENSITY_HIGH_THRESHOLD = 15;
         const DENSITY_LOW_THRESHOLD = 3;
 
-        // Optimization Constants
+        // Optimization
         const PERCEPTION_RADIUS_SQ = PERCEPTION_RADIUS * PERCEPTION_RADIUS;
         const SEPARATION_DISTANCE_SQ = SEPARATION_DISTANCE * SEPARATION_DISTANCE;
         const SEEK_ACTIVATION_SQ = 100 * 100;
+        const COLLISION_SQ = (PARTICLE_SIZE * 2) ** 2; // Simple bounding box check
 
         // Seeded Random
         function sfc32(a, b, c, d) {
@@ -122,43 +122,6 @@
             set(x, y) { this.x = x; this.y = y; return this; }
         }
 
-        // --- VISUAL EFFECTS ---
-        let explosions = [];
-
-        class Explosion {
-            constructor(x, y, color) {
-                this.particles = [];
-                for(let i=0; i<6; i++) {
-                    this.particles.push({
-                        x: x, y: y,
-                        vx: (Math.random() - 0.5) * 5,
-                        vy: (Math.random() - 0.5) * 5,
-                        life: 1.0,
-                        size: rng() * 4 + 2
-                    });
-                }
-                this.color = color;
-            }
-            update() {
-                for(let p of this.particles) {
-                    p.x += p.vx;
-                    p.y += p.vy;
-                    p.life -= 0.1;
-                }
-                this.particles = this.particles.filter(p => p.life > 0);
-            }
-            draw(ctx) {
-                ctx.fillStyle = this.color;
-                for(let p of this.particles) {
-                    ctx.globalAlpha = Math.max(0, p.life);
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
-                    ctx.fill();
-                }
-                ctx.globalAlpha = 1.0;
-            }
-        }
-
         class Particle {
             constructor(x, y) {
                 this.position = new Vector(x, y);
@@ -168,8 +131,9 @@
                 this._steer = new Vector(0,0);
                 this._desired = new Vector(0,0);
                 
+                // Interpolation Target
                 this.serverPos = new Vector(x, y);
-                this.respawnTimer = 0; // 0 = Alive, >0 = Dead/Respawning
+                this.colliding = false; // Collision flag 
             }
 
             applyForce(force) {
@@ -186,6 +150,7 @@
                 this.applyForce(this._steer);
             }
 
+            // PHYSICS LOGIC
             applyBehaviors(particles, target) {
                 let sepX = 0, sepY = 0, countSep = 0;
                 let aliX = 0, aliY = 0;
@@ -195,7 +160,7 @@
 
                 for (let i = 0; i < particles.length; i++) {
                     const other = particles[i];
-                    if (other === this || other.respawnTimer > 0) continue; // Ignore dead
+                    if (other === this) continue;
                     const dx = px - other.position.x;
                     const dy = py - other.position.y;
                     const dSq = dx*dx + dy*dy;
@@ -268,35 +233,21 @@
             }
 
             update() {
-                if (this.respawnTimer > 0) {
-                    this.respawnTimer--;
-                    return;
-                }
                 this.velocity.add(this.acceleration);
                 this.velocity.limit(MAX_SPEED);
                 this.position.add(this.velocity);
                 this.acceleration.mult(0);
             }
 
+            // VIEWER INTERPOLATION
             updateViewer() {
-                if (this.respawnTimer > 0) {
-                    this.respawnTimer--;
-                    return;
-                }
                 const lerpFactor = 0.15; 
-                // Calculate velocity based on movement for collision math
-                let dx = (this.serverPos.x - this.position.x) * lerpFactor;
-                let dy = (this.serverPos.y - this.position.y) * lerpFactor;
-                
-                this.velocity.set(dx, dy); 
-                
-                this.position.x += dx;
-                this.position.y += dy;
+                this.position.x += (this.serverPos.x - this.position.x) * lerpFactor;
+                this.position.y += (this.serverPos.y - this.position.y) * lerpFactor;
             }
 
             draw(ctx, color) {
-                if (this.respawnTimer > 0) return; // Don't draw if dead
-                ctx.fillStyle = color;
+                ctx.fillStyle = this.colliding ? '#ff0000' : color;
                 ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
             }
         }
@@ -309,15 +260,15 @@
         let scale = 1;
         
         // Two Swarms
-        let particlesHost = []; 
-        let particlesViewer = []; 
+        let particlesHost = []; // The original swarm (Host owned)
+        let particlesViewer = []; // The duel swarm (Viewer owned)
         
         let targetHost = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 }; 
         let targetViewer = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 };
 
         // --- NETWORK STATE ---
         let role = 'WAITING';
-        let isFighting = false; 
+        let isFighting = false; // Are we dueling?
         let peers = 0;
         let lastHeartbeat = 0;
         const myHostId = Math.floor(Math.random() * 1000000); 
@@ -335,6 +286,7 @@
             if (particlesHost.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
+                    // Initialize second swarm off-screen or same spot
                     particlesViewer.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
                 }
             }
@@ -357,81 +309,96 @@
             ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
             // Targets
-            ctx.fillStyle = '#000000'; 
+            ctx.fillStyle = '#000000'; // Host Target
             ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
+            
             if (isFighting) {
-                ctx.fillStyle = '#0000ff'; 
+                ctx.fillStyle = '#0000ff'; // Viewer Target
                 ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
             }
 
             // 1. UPDATE STEPS
             if (role === 'HOST') {
-                for (let p of particlesHost) { p.applyBehaviors(particlesHost, targetHost); p.update(); }
-                if (isFighting) for (let p of particlesViewer) p.updateViewer(); 
+                // Host computes Host Swarm physics
+                for (let p of particlesHost) {
+                    p.applyBehaviors(particlesHost, targetHost);
+                    p.update();
+                    p.colliding = false; // Reset collision
+                }
+                // Host interpolates Viewer Swarm (from network)
+                if (isFighting) {
+                    for (let p of particlesViewer) {
+                        p.updateViewer();
+                        p.colliding = false; 
+                    }
+                }
             } else {
-                for (let p of particlesHost) p.updateViewer(); 
-                if (isFighting) for (let p of particlesViewer) { p.applyBehaviors(particlesViewer, targetViewer); p.update(); }
-            }
-
-            // 2. COLLISION DETECTION & RESOLUTION
-            if (isFighting) {
-                for (let i = 0; i < NUM_PARTICLES; i++) {
-                    const pH = particlesHost[i];
-                    if (pH.respawnTimer > 0) continue; 
-
-                    for (let j = 0; j < NUM_PARTICLES; j++) {
-                        const pV = particlesViewer[j];
-                        if (pV.respawnTimer > 0) continue;
-
-                        const dx = pH.position.x - pV.position.x;
-                        const dy = pH.position.y - pV.position.y;
-                        
-                        // Collision Threshold (Box check is faster than sqrt)
-                        if (Math.abs(dx) < PARTICLE_SIZE*1.5 && Math.abs(dy) < PARTICLE_SIZE*1.5) {
-                            
-                            const speedH = pH.velocity.magSq();
-                            const speedV = pV.velocity.magSq();
-
-                            // HOST LOGIC
-                            if (role === 'HOST') {
-                                if (speedH < speedV) {
-                                    // Host Loses (I die)
-                                    pH.respawnTimer = 100; // Dead for ~1.5s
-                                    explosions.push(new Explosion(pH.position.x, pH.position.y, '#000'));
-                                    pH.position.set(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE);
-                                } else {
-                                    // Viewer Loses (Visual Only)
-                                    explosions.push(new Explosion(pV.position.x, pV.position.y, '#00f'));
-                                    pV.position.set(-1000, -1000); // Move ghost out of way
-                                }
-                            }
-                            // VIEWER LOGIC
-                            else if (role === 'VIEWER') {
-                                if (speedV < speedH) {
-                                    // Viewer Loses (I die)
-                                    pV.respawnTimer = 100;
-                                    explosions.push(new Explosion(pV.position.x, pV.position.y, '#00f'));
-                                    pV.position.set(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE);
-                                } else {
-                                    // Host Loses (Visual Only)
-                                    explosions.push(new Explosion(pH.position.x, pH.position.y, '#000'));
-                                    pH.position.set(-1000, -1000);
-                                }
-                            }
-                        }
+                // Viewer interpolates Host Swarm (from network)
+                for (let p of particlesHost) {
+                    p.updateViewer();
+                    p.colliding = false;
+                }
+                // If fighting, Viewer computes Viewer Swarm physics
+                if (isFighting) {
+                    for (let p of particlesViewer) {
+                        p.applyBehaviors(particlesViewer, targetViewer);
+                        p.update();
+                        p.colliding = false;
                     }
                 }
             }
 
-            // 3. DRAW PARTICLES
-            for (let p of particlesHost) p.draw(ctx, '#000000');
-            if (isFighting) for (let p of particlesViewer) p.draw(ctx, '#0000ff');
+            // 2. COLLISION DETECTION (If Fighting)
+            if (isFighting) {
+                // Track indices to remove
+                const deadHostIndices = new Set();
+                const deadViewerIndices = new Set();
 
-            // 4. DRAW EXPLOSIONS
-            for (let i = explosions.length - 1; i >= 0; i--) {
-                explosions[i].update();
-                explosions[i].draw(ctx);
-                if (explosions[i].particles.length === 0) explosions.splice(i, 1);
+                // Use current length instead of NUM_PARTICLES
+                for (let i = 0; i < particlesHost.length; i++) {
+                    const pH = particlesHost[i];
+                    for (let j = 0; j < particlesViewer.length; j++) {
+                        const pV = particlesViewer[j];
+                        
+                        const dx = pH.position.x - pV.position.x;
+                        const dy = pH.position.y - pV.position.y;
+                        
+                        // Check collision
+                        if (dx*dx + dy*dy < COLLISION_SQ) {
+                            pH.colliding = true;
+                            pV.colliding = true;
+
+                            // Compare Speed (Squared is enough)
+                            const speedHost = pH.velocity.magSq();
+                            const speedViewer = pV.velocity.magSq();
+
+                            // The slower particle is added to the death set
+                            if (speedHost < speedViewer) {
+                                deadHostIndices.add(i);
+                            } else {
+                                deadViewerIndices.add(j);
+                            }
+                        }
+                    }
+                }
+
+                // Delete particles (sorting descending to keep indices valid)
+                Array.from(deadHostIndices)
+                    .sort((a, b) => b - a)
+                    .forEach(index => particlesHost.splice(index, 1));
+                    
+                Array.from(deadViewerIndices)
+                    .sort((a, b) => b - a)
+                    .forEach(index => particlesViewer.splice(index, 1));
+            }
+
+            // 3. DRAW STEPS
+            // Draw Host Swarm (Black, or Red if colliding)
+            for (let p of particlesHost) p.draw(ctx, '#000000');
+            
+            // Draw Viewer Swarm (Blue, or Red if colliding)
+            if (isFighting) {
+                for (let p of particlesViewer) p.draw(ctx, '#0000ff');
             }
 
             ctx.restore();
@@ -445,8 +412,14 @@
             const room = window.joinRoom({ appId: 'pixel_swarm_sim_v3_fixed' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
+            
+            // Host Swarm Data
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
+            
+            // Viewer Swarm Data (Opponent)
             const [sendSwarmData2, getSwarmData2] = room.makeAction('sd2'); 
+
+            // Fight Negotiation
             const [sendFightReq, getFightReq] = room.makeAction('reqFight');
             const [sendFightAns, getFightAns] = room.makeAction('ansFight');
 
@@ -464,6 +437,7 @@
                 }
             };
 
+            // Host receives Fight Request
             getFightReq((data, peerId) => {
                 if (role === 'HOST' && !isFighting) {
                     if (confirm("Peer requesting DUEL. Accept?")) {
@@ -475,11 +449,12 @@
                 }
             });
 
+            // Viewer receives Fight Answer
             getFightAns((accepted) => {
                 if (role === 'VIEWER') {
                     if (accepted) {
                         isFighting = true;
-                        fightBtn.style.display = 'none'; 
+                        fightBtn.style.display = 'none'; // Hide button once fighting
                     } else {
                         fightBtn.innerText = "FIGHT";
                         fightBtn.disabled = false;
@@ -500,13 +475,13 @@
                 } else if (role === 'HOST') {
                     if (remoteHostId > myHostId) {
                         role = 'VIEWER';
-                        isFighting = false; 
+                        isFighting = false; // Reset fight on role change
                         updateStatus();
                     }
                 }
             });
 
-            // DATA RCV
+            // DATA: HOST SWARM (Received by Viewer)
             getSwarmData((data) => {
                 if (role === 'VIEWER') {
                     if (!Array.isArray(data) || data.length < 2) return;
@@ -520,9 +495,14 @@
                         }
                         pIndex++;
                     }
+                    // Sync array size if particles were deleted
+                    if (pIndex < particlesHost.length) {
+                        particlesHost.splice(pIndex); 
+                    }
                 }
             });
 
+            // DATA: VIEWER SWARM (Received by Host)
             getSwarmData2((data) => {
                 if (role === 'HOST' && isFighting) {
                     if (!Array.isArray(data) || data.length < 2) return;
@@ -536,6 +516,10 @@
                         }
                         pIndex++;
                     }
+                    // Sync array size if particles were deleted
+                    if (pIndex < particlesViewer.length) {
+                        particlesViewer.splice(pIndex);
+                    }
                 }
             });
 
@@ -548,15 +532,16 @@
                 // Host takeover check
                 if (role !== 'HOST' && (now - lastHeartbeat > 2000)) {
                     role = 'HOST';
-                    isFighting = false; 
+                    isFighting = false; // Reset fight if connection lost
                     updateStatus();
                 }
 
                 if (role === 'HOST') {
                     sendHeartbeat(myHostId); 
+                    
+                    // Broadcast Host Swarm
                     const payload = [Math.round(targetHost.x), Math.round(targetHost.y)];
                     for (let i = 0; i < particlesHost.length; i++) {
-                        // If I am dead, send my respawn coordinate immediately, or keep sending my safe coordinate
                         payload.push(
                             Math.round(particlesHost[i].position.x * 10) / 10, 
                             Math.round(particlesHost[i].position.y * 10) / 10
@@ -565,6 +550,7 @@
                     sendSwarmData(payload);
                 }
                 
+                // If I am a fighting Viewer, Broadcast My Swarm
                 if (role === 'VIEWER' && isFighting) {
                     const payload = [Math.round(targetViewer.x), Math.round(targetViewer.y)];
                     for (let i = 0; i < particlesViewer.length; i++) {
@@ -613,6 +599,7 @@
             } else if (role === 'VIEWER') {
                 statusText.innerText = 'VIEWER';
                 statusText.className = 'text-blue-600 font-bold';
+                // Only show fight button if not already fighting
                 fightBtn.style.display = isFighting ? 'none' : 'inline-block';
             } else {
                 statusText.innerText = 'SEARCHING...';
