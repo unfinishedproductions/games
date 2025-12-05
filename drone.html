@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Drone Wars</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    
+    <!-- Trystero for P2P Networking -->
+    <script type="module">
+        import { joinRoom } from 'https://cdn.skypack.dev/trystero/torrent';
+        window.joinRoom = joinRoom;
+    </script>
+
+    <style>
+        .font-pixel { font-family: 'VT323', monospace; letter-spacing: 0.1em; }
+        html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background-color: #111; color: #eee; }
+        canvas { display: block; }
+        
+        /* UI Overlay */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; p-4; }
+        .hud-text { text-shadow: 2px 2px 0 #000; font-size: 1.5rem; pointer-events: auto; }
+        .waiting-screen { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 50; flex-direction: column;}
+    </style>
+</head>
+<body class="font-pixel">
+
+    <!-- Connection Screen -->
+    <div id="connection-screen" class="waiting-screen">
+        <h1 class="text-4xl mb-4 text-green-400">CONNECTING TO NEURAL NET...</h1>
+        <p class="text-xl animate-pulse">Searching for rival pilot...</p>
+    </div>
+
+    <!-- HUD -->
+    <div id="ui-layer" class="p-6">
+        <div class="flex justify-between w-full">
+            <div class="text-cyan-400 hud-text">YOU: <span id="my-score">0</span></div>
+            <div class="text-red-500 hud-text">ENEMY: <span id="enemy-score">0</span></div>
+        </div>
+        <div class="text-center text-gray-500 text-sm mb-4">DRAG TO COMMAND SWARM</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script type="module">
+        // --- SEEDED RANDOM (CRITICAL FOR SYNC) ---
+        // Both players must generate the exact same "random" starting positions
+        function sfc32(a, b, c, d) {
+            return function() {
+                a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+                var t = (a + b) | 0; a = b ^ b >>> 9; b = c + (c << 3) | 0; c = (c << 21) | d; d = d + 1 | 0;
+                t = t + d | 0; c = c + t | 0; return (t >>> 0) / 4294967296;
+            }
+        }
+        // Fixed seed ensures determinism across network
+        const seed = 123456789;
+        const rand = sfc32(0x9E3779B9, 0x243F6A88, 0xB7E15162, seed);
+
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            PARTICLE_COUNT: 250, // Per player (500 total)
+            SIZE: 3,
+            MAX_SPEED: 3.5,
+            MAX_FORCE: 0.08,
+            PERCEPTION: 60,
+            SEPARATION: 20,
+            GRID_SIZE: 60 // For Spatial Hashing optimization
+        };
+        
+        // Pre-squares for optimization
+        const SQ = {
+            PERCEPTION: CONFIG.PERCEPTION ** 2,
+            SEPARATION: CONFIG.SEPARATION ** 2,
+            SPEED: CONFIG.MAX_SPEED ** 2,
+            FORCE: CONFIG.MAX_FORCE ** 2
+        };
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- GAME STATE ---
+        const state = {
+            me: null, // 'host' or 'peer'
+            connected: false,
+            particles: [],
+            explosions: [],
+            scores: { me: 0, enemy: 0 },
+            targets: {
+                host: { x: -1000, y: -1000 }, // Host input
+                peer: { x: -1000, y: -1000 }  // Peer input
+            }
+        };
+
+        // --- VECTOR MATH (Optimized) ---
+        class Vector {
+            constructor(x, y) { this.x = x || 0; this.y = y || 0; }
+            add(v) { this.x += v.x; this.y += v.y; return this; }
+            sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+            mult(n) { this.x *= n; this.y *= n; return this; }
+            div(n) { this.x /= n; this.y /= n; return this; }
+            magSq() { return this.x*this.x + this.y*this.y; }
+            set(x, y) { this.x = x; this.y = y; return this; }
+            copy() { return new Vector(this.x, this.y); }
+            normalize() {
+                let m = Math.sqrt(this.x*this.x + this.y*this.y);
+                if(m > 0) this.div(m);
+                return this;
+            }
+            limit(max) {
+                if (this.magSq() > max*max) this.normalize().mult(max);
+                return this;
+            }
+        }
+
+        // --- EXPLOSION EFFECT (1980s Style) ---
+        class Explosion {
+            constructor(x, y, color) {
+                this.particles = [];
+                for(let i=0; i<8; i++) {
+                    // Random spread
+                    const vx = (Math.random() - 0.5) * 6;
+                    const vy = (Math.random() - 0.5) * 6;
+                    this.particles.push({ x, y, vx, vy, life: 1.0 });
+                }
+                this.color = color;
+            }
+            update() {
+                for(let p of this.particles) {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.05;
+                }
+                this.particles = this.particles.filter(p => p.life > 0);
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                for(let p of this.particles) {
+                    if(p.life <= 0) continue;
+                    // Pixelated fade
+                    if(Math.random() < p.life) { 
+                        ctx.fillRect(p.x, p.y, 4, 4);
+                    }
+                }
+            }
+        }
+
+        // --- DRONE PARTICLE ---
+        class Particle {
+            constructor(x, y, team) {
+                this.pos = new Vector(x, y);
+                this.vel = new Vector(rand() * 2 - 1, rand() * 2 - 1);
+                this.acc = new Vector(0, 0);
+                this.team = team; // 'host' (Cyan) or 'peer' (Red)
+                this.dead = false;
+                
+                // Color configuration
+                this.color = team === 'host' ? '#22d3ee' : '#ef4444';
+            }
+
+            applyBehaviors(boids, target) {
+                let sep = new Vector(0,0), ali = new Vector(0,0), coh = new Vector(0,0);
+                let count = 0;
+
+                // Only check boids on SAME TEAM for flocking logic
+                for (let other of boids) {
+                    // Simple distance check (optimization: could use grid here too)
+                    let dSq = (this.pos.x - other.pos.x)**2 + (this.pos.y - other.pos.y)**2;
+                    
+                    if (dSq > 0 && dSq < SQ.PERCEPTION) {
+                        // Separation
+                        if (dSq < SQ.SEPARATION) {
+                            let diff = new Vector(this.pos.x - other.pos.x, this.pos.y - other.pos.y);
+                            diff.normalize().div(Math.sqrt(dSq));
+                            sep.add(diff);
+                        }
+                        // Alignment & Cohesion
+                        ali.add(other.vel);
+                        coh.add(other.pos);
+                        count++;
+                    }
+                }
+
+                if (count > 0) {
+                    // Sep
+                    sep.div(count).normalize().mult(CONFIG.MAX_SPEED).sub(this.vel).limit(CONFIG.MAX_FORCE * 1.5);
+                    // Ali
+                    ali.div(count).normalize().mult(CONFIG.MAX_SPEED).sub(this.vel).limit(CONFIG.MAX_FORCE);
+                    // Coh
+                    coh.div(count).sub(this.pos).normalize().mult(CONFIG.MAX_SPEED).sub(this.vel).limit(CONFIG.MAX_FORCE * 0.8);
+                }
+
+                // Seek Target (The User's Finger)
+                let seek = new Vector(0,0);
+                let dToTargetSq = (target.x - this.pos.x)**2 + (target.y - this.pos.y)**2;
+                if (dToTargetSq > 1000) {
+                    let desire = new Vector(target.x - this.pos.x, target.y - this.pos.y);
+                    desire.normalize().mult(CONFIG.MAX_SPEED);
+                    seek = desire.sub(this.vel).limit(CONFIG.MAX_FORCE * 1.2);
+                }
+
+                this.acc.add(sep).add(ali).add(coh).add(seek);
+            }
+
+            update() {
+                this.vel.add(this.acc).limit(CONFIG.MAX_SPEED);
+                this.pos.add(this.vel);
+                this.acc.mult(0);
+
+                // Screen Wrap
+                if (this.pos.x < 0) this.pos.x = width;
+                if (this.pos.x > width) this.pos.x = 0;
+                if (this.pos.y < 0) this.pos.y = height;
+                if (this.pos.y > height) this.pos.y = 0;
+            }
+
+            draw(ctx) {
+                if (this.dead) return;
+                ctx.fillStyle = this.color;
+                ctx.fillRect(Math.floor(this.pos.x), Math.floor(this.pos.y), CONFIG.SIZE, CONFIG.SIZE);
+            }
+        }
+
+        // --- SPATIAL GRID FOR COLLISIONS ---
+        // Maps grid cells "x,y" to arrays of particles
+        let grid = {};
+
+        function addToGrid(p) {
+            const gx = Math.floor(p.pos.x / CONFIG.GRID_SIZE);
+            const gy = Math.floor(p.pos.y / CONFIG.GRID_SIZE);
+            const key = `${gx},${gy}`;
+            if (!grid[key]) grid[key] = [];
+            grid[key].push(p);
+        }
+
+        function checkCollisions() {
+            // Only check if we have particles from both teams
+            const hostParticles = state.particles.filter(p => p.team === 'host' && !p.dead);
+            const peerParticles = state.particles.filter(p => p.team === 'peer' && !p.dead);
+            
+            if (hostParticles.length === 0 || peerParticles.length === 0) return;
+
+            // Clear Grid
+            grid = {};
+            // Add PEER particles to grid (passive)
+            peerParticles.forEach(p => addToGrid(p));
+
+            // Check HOST particles against grid (active)
+            hostParticles.forEach(att => {
+                const gx = Math.floor(att.pos.x / CONFIG.GRID_SIZE);
+                const gy = Math.floor(att.pos.y / CONFIG.GRID_SIZE);
+
+                // Check 3x3 neighbor grids to catch edge cases
+                for (let x = -1; x <= 1; x++) {
+                    for (let y = -1; y <= 1; y++) {
+                        const key = `${gx+x},${gy+y}`;
+                        const cell = grid[key];
+                        if (cell) {
+                            for (let def of cell) {
+                                if (def.dead) continue;
+
+                                const dx = att.pos.x - def.pos.x;
+                                const dy = att.pos.y - def.pos.y;
+                                // Simple bounding box intersection (faster than circle)
+                                if (Math.abs(dx) < CONFIG.SIZE * 1.5 && Math.abs(dy) < CONFIG.SIZE * 1.5) {
+                                    resolveCombat(att, def);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- COMBAT LOGIC ---
+        function resolveCombat(p1, p2) {
+            const v1 = p1.vel.magSq();
+            const v2 = p2.vel.magSq();
+            
+            // Calculate normalized relative vector
+            let dx = p2.pos.x - p1.pos.x;
+            let dy = p2.pos.y - p1.pos.y;
+            let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+            let nx = dx / dist; // Normal X
+            let ny = dy / dist; // Normal Y
+
+            // Dot Product to find impact angle
+            // If p1 is moving towards p2, dot product of p1.vel and normal is > 0
+            let v1n = p1.vel.copy().normalize();
+            let dot = v1n.x * nx + v1n.y * ny;
+
+            let loser = null;
+
+            // Logic:
+            // 1. Head on (dot < -0.5 relative to each other?): Faster wins
+            // 2. Side Swipe (impact angle is perpendicular): Attacker wins
+            
+            // Simplified Arcade Logic:
+            // Just compare speed + small random factor for chaos
+            let score1 = v1 * (Math.abs(dot) + 0.5); // Dot adds bonus for direct hits
+            let score2 = v2; 
+
+            if (score1 > score2) loser = p2;
+            else loser = p1;
+
+            if (loser) {
+                loser.dead = true;
+                state.explosions.push(new Explosion(loser.pos.x, loser.pos.y, loser.color));
+                
+                // Update score
+                if (loser.team === 'host') state.scores.enemy++;
+                else state.scores.me++;
+                
+                updateScoreBoard();
+            }
+        }
+
+        function updateScoreBoard() {
+            // Flip scores visually based on who I am
+            if (state.me === 'host') {
+                document.getElementById('my-score').innerText = state.scores.me;
+                document.getElementById('enemy-score').innerText = state.scores.enemy;
+            } else {
+                document.getElementById('my-score').innerText = state.scores.enemy; // Enemy dead = my point
+                document.getElementById('enemy-score').innerText = state.scores.me;
+            }
+        }
+
+
+        // --- MAIN LOOP ---
+        function init() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+
+            // Generate particles deterministically
+            state.particles = [];
+            
+            // Host Team (Cyan) - Starts Left
+            for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+                state.particles.push(new Particle(rand() * width * 0.2, rand() * height, 'host'));
+            }
+            // Peer Team (Red) - Starts Right
+            for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+                state.particles.push(new Particle(width - (rand() * width * 0.2), rand() * height, 'peer'));
+            }
+        }
+
+        function loop() {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, width, height);
+
+            // 1. Separate particles by team for processing
+            const hostTeam = state.particles.filter(p => p.team === 'host');
+            const peerTeam = state.particles.filter(p => p.team === 'peer');
+
+            // 2. Apply Physics
+            // Both clients run ALL physics locally to ensure smoothness.
+            // We use the last known target position for the remote player.
+            hostTeam.forEach(p => {
+                if(!p.dead) {
+                    p.applyBehaviors(hostTeam, state.targets.host);
+                    p.update();
+                    p.draw(ctx);
+                }
+            });
+
+            peerTeam.forEach(p => {
+                if(!p.dead) {
+                    p.applyBehaviors(peerTeam, state.targets.peer);
+                    p.update();
+                    p.draw(ctx);
+                }
+            });
+
+            // 3. Collisions
+            checkCollisions();
+
+            // 4. Explosions
+            state.explosions.forEach(ex => {
+                ex.update();
+                ex.draw(ctx);
+            });
+            // Cleanup empty explosions
+            state.explosions = state.explosions.filter(ex => ex.particles.length > 0);
+
+            requestAnimationFrame(loop);
+        }
+
+
+        // --- NETWORKING (Trystero) ---
+        async function setupNetwork() {
+            // Join room 'drone-wars-lobby' (you can make this random for private rooms)
+            const roomId = 'drone_wars_v1_room';
+            const room = window.joinRoom({ appId: 'pixel_swarm_wars' }, roomId);
+            
+            const [sendInput, getInput] = room.makeAction('input');
+            const [sendPing, getPing] = room.makeAction('ping');
+
+            // Handle connection
+            room.onPeerJoin(peerId => {
+                console.log('Peer Joined:', peerId);
+                // Simple logic: First peer ID alphabetical order becomes 'host'
+                // But simpler: If I am here and you join, I am host.
+                // We actually negotiate roles via a quick ping
+                sendPing({ type: 'hello', time: Date.now() });
+                document.getElementById('connection-screen').style.display = 'none';
+                state.connected = true;
+            });
+
+            // Received Input (Mouse Coords)
+            getInput((data, peerId) => {
+                // If I am host, the incoming data is for the peer swarm
+                // If I am peer, the incoming data is for the host swarm
+                if (state.me === 'host') {
+                    state.targets.peer = data;
+                } else {
+                    state.targets.host = data;
+                }
+            });
+
+            // Handshake logic to decide sides
+            getPing((data, peerId) => {
+                if (!state.me) {
+                    // Primitive role assignment: Compare peer IDs (Trystero handles IDs internally)
+                    // For this demo, we'll assume the person who didn't just join is Host.
+                    // Actually, let's just randomize based on a comparison if we could.
+                    // Hacky solution for demo:
+                    // If I receive a ping, it means someone else was already here or just joined.
+                    // We need to set state.me.
+                }
+            });
+
+            // Input Broadcasting loop
+            setInterval(() => {
+                if(state.connected && state.me) {
+                    // Send MY target
+                    const myTarget = state.me === 'host' ? state.targets.host : state.targets.peer;
+                    sendInput(myTarget);
+                }
+            }, 50); // Send 20 times a second (Interpolation handles the rest)
+
+            // Initial Role Assignment (Random for now since ID isn't exposed easily in simplified API)
+            // In a real app, use a hash of the ID.
+            // Here: We will check URL. 
+            // Player 1 visits: url#host
+            // Player 2 visits: url#peer
+            if(window.location.hash === '#peer') {
+                state.me = 'peer';
+                document.getElementById('my-score').className = "text-red-500 hud-text";
+                document.getElementById('enemy-score').className = "text-cyan-400 hud-text";
+            } else {
+                state.me = 'host';
+                window.location.hash = 'host';
+            }
+        }
+
+        // --- INPUT HANDLING ---
+        function handleInput(x, y) {
+            if (state.me === 'host') state.targets.host = {x, y};
+            else if (state.me === 'peer') state.targets.peer = {x, y};
+        }
+
+        canvas.addEventListener('mousemove', e => handleInput(e.clientX, e.clientY));
+        canvas.addEventListener('touchmove', e => {
+            e.preventDefault();
+            handleInput(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        // --- START ---
+        init();
+        setupNetwork();
+        loop();
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        });
+
+    </script>
+</body>
+</html>
