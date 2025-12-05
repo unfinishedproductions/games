@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Pixel Swarm (Fixed Sync)</title>
+    <title>P2P Pixel Swarm (Duel Mode)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     
@@ -25,6 +25,7 @@
         canvas { display: block; image-rendering: pixelated; }
 
         #ui-layer { position: absolute; top: 1rem; right: 1rem; pointer-events: none; text-align: right; }
+        
         .status-box { 
             background: #fff; 
             border: 2px solid #000; 
@@ -32,7 +33,23 @@
             padding: 10px 15px; 
             display: inline-block; 
             pointer-events: auto; 
+            margin-bottom: 10px;
         }
+
+        #fight-btn {
+            background-color: #3b82f6;
+            color: white;
+            border: 2px solid #000;
+            box-shadow: 4px 4px 0px #000;
+            padding: 5px 15px;
+            font-family: 'VT323', monospace;
+            font-size: 1.2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            display: none; /* Hidden by default */
+            text-transform: uppercase;
+        }
+        #fight-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0px #000; }
     </style>
 </head>
 <body class="font-pixel">
@@ -42,8 +59,9 @@
             <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
-            <p class="text-sm text-gray-500 mt-2" id="controls-hint">Wait...</p>
         </div>
+        <br>
+        <button id="fight-btn">FIGHT</button>
     </div>
 
     <canvas id="swarmCanvas"></canvas>
@@ -70,6 +88,7 @@
         const PERCEPTION_RADIUS_SQ = PERCEPTION_RADIUS * PERCEPTION_RADIUS;
         const SEPARATION_DISTANCE_SQ = SEPARATION_DISTANCE * SEPARATION_DISTANCE;
         const SEEK_ACTIVATION_SQ = 100 * 100;
+        const COLLISION_SQ = (PARTICLE_SIZE * 2) ** 2; // Simple bounding box check
 
         // Seeded Random
         function sfc32(a, b, c, d) {
@@ -113,7 +132,8 @@
                 this._desired = new Vector(0,0);
                 
                 // Interpolation Target
-                this.serverPos = new Vector(x, y); 
+                this.serverPos = new Vector(x, y);
+                this.colliding = false; // Collision flag 
             }
 
             applyForce(force) {
@@ -130,7 +150,7 @@
                 this.applyForce(this._steer);
             }
 
-            // HOST PHYSICS
+            // PHYSICS LOGIC
             applyBehaviors(particles, target) {
                 let sepX = 0, sepY = 0, countSep = 0;
                 let aliX = 0, aliY = 0;
@@ -221,14 +241,13 @@
 
             // VIEWER INTERPOLATION
             updateViewer() {
-                // Smoothly slide 15% of the way to the server position every frame
-                // This creates the buttery smooth animation even with 12hz updates
                 const lerpFactor = 0.15; 
                 this.position.x += (this.serverPos.x - this.position.x) * lerpFactor;
                 this.position.y += (this.serverPos.y - this.position.y) * lerpFactor;
             }
 
-            draw(ctx) {
+            draw(ctx, color) {
+                ctx.fillStyle = this.colliding ? '#ff0000' : color;
                 ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
             }
         }
@@ -239,14 +258,19 @@
         
         let displayWidth, displayHeight;
         let scale = 1;
-        let particles = [];
-        let target = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 }; 
         
+        // Two Swarms
+        let particlesHost = []; // The original swarm (Host owned)
+        let particlesViewer = []; // The duel swarm (Viewer owned)
+        
+        let targetHost = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 }; 
+        let targetViewer = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 };
+
         // --- NETWORK STATE ---
         let role = 'WAITING';
+        let isFighting = false; // Are we dueling?
         let peers = 0;
         let lastHeartbeat = 0;
-        // Generate a random ID to resolve conflicts if two people become HOST at once
         const myHostId = Math.floor(Math.random() * 1000000); 
 
         function resize() {
@@ -259,9 +283,11 @@
 
         function initSimulation() {
             resize();
-            if (particles.length === 0) {
+            if (particlesHost.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
-                    particles.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
+                    particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
+                    // Initialize second swarm off-screen or same spot
+                    particlesViewer.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
                 }
             }
         }
@@ -272,7 +298,6 @@
             ctx.fillRect(0, 0, displayWidth, displayHeight);
 
             ctx.save();
-            // Center & Scale
             const offsetX = (displayWidth - LOGICAL_SIZE * scale) / 2;
             const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
             ctx.translate(offsetX, offsetY);
@@ -283,21 +308,70 @@
             ctx.lineWidth = 2;
             ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
-            // Target
-            ctx.fillStyle = '#ff0000';
-            ctx.fillRect(target.x - 2, target.y - 2, 4, 4);
+            // Targets
+            ctx.fillStyle = '#000000'; // Host Target
+            ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
+            
+            if (isFighting) {
+                ctx.fillStyle = '#0000ff'; // Viewer Target
+                ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
+            }
 
-            // Particles
-            ctx.fillStyle = '#000000'; 
-            for (let i = 0; i < particles.length; i++) {
-                const p = particles[i];
-                if (role === 'HOST') {
-                    p.applyBehaviors(particles, target);
+            // 1. UPDATE STEPS
+            if (role === 'HOST') {
+                // Host computes Host Swarm physics
+                for (let p of particlesHost) {
+                    p.applyBehaviors(particlesHost, targetHost);
                     p.update();
-                } else {
-                    p.updateViewer();
+                    p.colliding = false; // Reset collision
                 }
-                p.draw(ctx);
+                // Host interpolates Viewer Swarm (from network)
+                if (isFighting) {
+                    for (let p of particlesViewer) {
+                        p.updateViewer();
+                        p.colliding = false; 
+                    }
+                }
+            } else {
+                // Viewer interpolates Host Swarm (from network)
+                for (let p of particlesHost) {
+                    p.updateViewer();
+                    p.colliding = false;
+                }
+                // If fighting, Viewer computes Viewer Swarm physics
+                if (isFighting) {
+                    for (let p of particlesViewer) {
+                        p.applyBehaviors(particlesViewer, targetViewer);
+                        p.update();
+                        p.colliding = false;
+                    }
+                }
+            }
+
+            // 2. COLLISION DETECTION (If Fighting)
+            if (isFighting) {
+                // Brute force check: O(N*N) - acceptable for 400x400 in JS usually
+                for (let i = 0; i < NUM_PARTICLES; i++) {
+                    const pH = particlesHost[i];
+                    for (let j = 0; j < NUM_PARTICLES; j++) {
+                        const pV = particlesViewer[j];
+                        const dx = pH.position.x - pV.position.x;
+                        const dy = pH.position.y - pV.position.y;
+                        if (dx*dx + dy*dy < COLLISION_SQ) {
+                            pH.colliding = true;
+                            pV.colliding = true;
+                        }
+                    }
+                }
+            }
+
+            // 3. DRAW STEPS
+            // Draw Host Swarm (Black, or Red if colliding)
+            for (let p of particlesHost) p.draw(ctx, '#000000');
+            
+            // Draw Viewer Swarm (Blue, or Red if colliding)
+            if (isFighting) {
+                for (let p of particlesViewer) p.draw(ctx, '#0000ff');
             }
 
             ctx.restore();
@@ -305,109 +379,169 @@
         }
 
         // --- NETWORKING ---
-
-        // >>> EDIT THIS NUMBER TO TEST SPEEDS (Hz) <<<
         const TRANSMISSION_RATE = 12; 
-        // >>> END EDIT <<<
 
         function setupNetwork() {
-            // Room ID 'swarm_v3_fixed' ensures clean slate from previous tests
             const room = window.joinRoom({ appId: 'pixel_swarm_sim_v3_fixed' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
+            
+            // Host Swarm Data
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
+            
+            // Viewer Swarm Data (Opponent)
+            const [sendSwarmData2, getSwarmData2] = room.makeAction('sd2'); 
+
+            // Fight Negotiation
+            const [sendFightReq, getFightReq] = room.makeAction('reqFight');
+            const [sendFightAns, getFightAns] = room.makeAction('ansFight');
 
             room.onPeerJoin(() => { peers++; updateStatus(); });
             room.onPeerLeave(() => { peers--; updateStatus(); });
 
-            // 1. HEARTBEAT HANDLER (Resolves "Two Hosts" conflict)
+            // FIGHT LOGIC
+            const fightBtn = document.getElementById('fight-btn');
+            
+            fightBtn.onclick = () => {
+                if (role === 'VIEWER') {
+                    sendFightReq('FIGHT ME');
+                    fightBtn.innerText = "WAITING...";
+                    fightBtn.disabled = true;
+                }
+            };
+
+            // Host receives Fight Request
+            getFightReq((data, peerId) => {
+                if (role === 'HOST' && !isFighting) {
+                    if (confirm("Peer requesting DUEL. Accept?")) {
+                        isFighting = true;
+                        sendFightAns(true);
+                    } else {
+                        sendFightAns(false);
+                    }
+                }
+            });
+
+            // Viewer receives Fight Answer
+            getFightAns((accepted) => {
+                if (role === 'VIEWER') {
+                    if (accepted) {
+                        isFighting = true;
+                        fightBtn.style.display = 'none'; // Hide button once fighting
+                    } else {
+                        fightBtn.innerText = "FIGHT";
+                        fightBtn.disabled = false;
+                        alert("Host declined.");
+                    }
+                }
+            });
+
+            // HEARTBEAT
             getHeartbeat((data) => {
                 lastHeartbeat = Date.now();
-                const remoteHostId = data; // Data is the ID of the sender
-
-                // If I am a Viewer, just stay alive
+                const remoteHostId = data; 
                 if (role !== 'HOST') {
                     if (role !== 'VIEWER') {
                         role = 'VIEWER';
                         updateStatus();
                     }
-                } 
-                // If I am a Host, and I see another Host...
-                else if (role === 'HOST') {
-                    // If their ID is bigger than mine, I surrender (Become Viewer)
-                    // If mine is bigger, I ignore them (I stay Host, they will surrender)
+                } else if (role === 'HOST') {
                     if (remoteHostId > myHostId) {
-                        console.log("Conflict detected: Surrendering to dominant Host.");
                         role = 'VIEWER';
+                        isFighting = false; // Reset fight on role change
                         updateStatus();
                     }
                 }
             });
 
-            // 2. DATA RECEIVER
+            // DATA: HOST SWARM (Received by Viewer)
             getSwarmData((data) => {
                 if (role === 'VIEWER') {
-                    // Expecting standard array: [tx, ty, p1x, p1y, p2x, p2y...]
                     if (!Array.isArray(data) || data.length < 2) return;
-
-                    target.x = data[0];
-                    target.y = data[1];
-
+                    targetHost.x = data[0];
+                    targetHost.y = data[1];
                     let pIndex = 0;
-                    // Start reading particle data from index 2
                     for (let i = 2; i < data.length; i += 2) {
-                        if (particles[pIndex]) {
-                            particles[pIndex].serverPos.x = data[i];
-                            particles[pIndex].serverPos.y = data[i+1];
+                        if (particlesHost[pIndex]) {
+                            particlesHost[pIndex].serverPos.x = data[i];
+                            particlesHost[pIndex].serverPos.y = data[i+1];
                         }
                         pIndex++;
                     }
                 }
             });
 
-            // 3. BROADCAST LOOP
+            // DATA: VIEWER SWARM (Received by Host)
+            getSwarmData2((data) => {
+                if (role === 'HOST' && isFighting) {
+                    if (!Array.isArray(data) || data.length < 2) return;
+                    targetViewer.x = data[0];
+                    targetViewer.y = data[1];
+                    let pIndex = 0;
+                    for (let i = 2; i < data.length; i += 2) {
+                        if (particlesViewer[pIndex]) {
+                            particlesViewer[pIndex].serverPos.x = data[i];
+                            particlesViewer[pIndex].serverPos.y = data[i+1];
+                        }
+                        pIndex++;
+                    }
+                }
+            });
+
+            // BROADCAST LOOP
             const transmissionInterval = 1000 / TRANSMISSION_RATE;
 
             setInterval(() => {
                 const now = Date.now();
 
-                // If no heartbeat for 2 seconds, attempt to become Host
+                // Host takeover check
                 if (role !== 'HOST' && (now - lastHeartbeat > 2000)) {
                     role = 'HOST';
+                    isFighting = false; // Reset fight if connection lost
                     updateStatus();
                 }
 
                 if (role === 'HOST') {
-                    // Send my ID with heartbeat so conflicts can be resolved
                     sendHeartbeat(myHostId); 
                     
-                    // Build Standard Array (Not Float32Array) to prevent JSON bugs
-                    // Format: [TargetX, TargetY, P1x, P1y, P2x, P2y...]
-                    const payload = [];
-                    payload.push(Math.round(target.x), Math.round(target.y));
-
-                    for (let i = 0; i < particles.length; i++) {
-                        // Rounding to 1 decimal place reduces string size significantly while keeping smooth motion
+                    // Broadcast Host Swarm
+                    const payload = [Math.round(targetHost.x), Math.round(targetHost.y)];
+                    for (let i = 0; i < particlesHost.length; i++) {
                         payload.push(
-                            Math.round(particles[i].position.x * 10) / 10, 
-                            Math.round(particles[i].position.y * 10) / 10
+                            Math.round(particlesHost[i].position.x * 10) / 10, 
+                            Math.round(particlesHost[i].position.y * 10) / 10
                         );
                     }
-                    
                     sendSwarmData(payload);
                 }
+                
+                // If I am a fighting Viewer, Broadcast My Swarm
+                if (role === 'VIEWER' && isFighting) {
+                    const payload = [Math.round(targetViewer.x), Math.round(targetViewer.y)];
+                    for (let i = 0; i < particlesViewer.length; i++) {
+                        payload.push(
+                            Math.round(particlesViewer[i].position.x * 10) / 10, 
+                            Math.round(particlesViewer[i].position.y * 10) / 10
+                        );
+                    }
+                    sendSwarmData2(payload);
+                }
+
             }, transmissionInterval); 
         }
 
         function updateTargetLocal(clientX, clientY) {
+            const offsetX = (displayWidth - LOGICAL_SIZE * scale) / 2;
+            const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
+            let tx = (clientX - offsetX) / scale;
+            let ty = (clientY - offsetY) / scale;
+
             if (role === 'HOST') {
-                const offsetX = (displayWidth - LOGICAL_SIZE * scale) / 2;
-                const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
-                // Reverse calculate logical coordinates
-                let tx = (clientX - offsetX) / scale;
-                let ty = (clientY - offsetY) / scale;
-                target.x = tx;
-                target.y = ty;
+                targetHost.x = tx;
+                targetHost.y = ty;
+            } else if (role === 'VIEWER' && isFighting) {
+                targetViewer.x = tx;
+                targetViewer.y = ty;
             }
         }
 
@@ -419,21 +553,23 @@
         function updateStatus() {
             const statusText = document.getElementById('status-text');
             const peerText = document.getElementById('peer-count');
-            const hint = document.getElementById('controls-hint');
+            const fightBtn = document.getElementById('fight-btn');
 
             peerText.innerText = peers;
 
             if (role === 'HOST') {
                 statusText.innerText = 'HOST';
                 statusText.className = 'text-green-600 font-bold';
-                hint.innerText = "Simulating & Broadcasting.";
+                fightBtn.style.display = 'none';
             } else if (role === 'VIEWER') {
                 statusText.innerText = 'VIEWER';
                 statusText.className = 'text-blue-600 font-bold';
-                hint.innerText = "Syncing...";
+                // Only show fight button if not already fighting
+                fightBtn.style.display = isFighting ? 'none' : 'inline-block';
             } else {
                 statusText.innerText = 'SEARCHING...';
                 statusText.className = 'text-gray-500';
+                fightBtn.style.display = 'none';
             }
         }
 
