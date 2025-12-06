@@ -57,6 +57,49 @@
         #fight-btn:active { transform: scale(0.95); }
         
         #enemy-stats { display: none; color: #0000ff; }
+
+        /* WIN MODAL STYLES */
+        #win-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(2px);
+        }
+        
+        #win-content {
+            background-color: white;
+            padding: 2rem 3rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            pointer-events: auto;
+            border: 2px solid #111;
+        }
+
+        #win-title {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            color: #111;
+        }
+
+        #rematch-btn {
+            background-color: #111;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            font-size: 1.2rem;
+            font-weight: 800;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: background 0.2s;
+        }
+        #rematch-btn:hover { background-color: #333; }
     </style>
 </head>
 <body>
@@ -68,6 +111,14 @@
         <div class="ui-element text-2xl text-right">
             <button id="fight-btn">FIGHT</button>
             <div id="enemy-stats"><span id="enemy-count">400</span></div>
+        </div>
+    </div>
+
+    <!-- WIN SCREEN MODAL -->
+    <div id="win-modal">
+        <div id="win-content">
+            <div id="win-title">YOU WON</div>
+            <button id="rematch-btn">REMATCH</button>
         </div>
     </div>
 
@@ -88,7 +139,7 @@
         const ALIGNMENT_FACTOR = 0.6;  
         const COHESION_FACTOR = 0.45;
         const TARGET_SEEK_FACTOR = 0.5; 
-        const ENEMY_AVOID_FACTOR = 2.0; // Increased slightly for idle avoidance
+        const ENEMY_AVOID_FACTOR = 2.0; 
 
         const PERCEPTION_RADIUS_SQ = PERCEPTION_RADIUS * PERCEPTION_RADIUS;
         const SEPARATION_DISTANCE_SQ = SEPARATION_DISTANCE * SEPARATION_DISTANCE;
@@ -225,8 +276,6 @@
                     }
                 }
 
-                // --- MODIFIED ENEMY LOGIC ---
-                // Only avoid enemies if we are NOT in full war (bothActive)
                 if (fighting && enemies && !bothActive) {
                     let avoX = 0, avoY = 0, countAvo = 0;
                     for (let i = 0; i < enemies.length; i++) {
@@ -297,8 +346,6 @@
                     this.steerTo(cohX, cohY, dynamicFactor);
                 }
 
-                // --- MODIFIED TARGET LOGIC ---
-                // If user interacted, seek target. 
                 if (hasInteracted) {
                     const dResX = target.x - px;
                     const dResY = target.y - py;
@@ -306,7 +353,6 @@
                         this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
                     }
                 } else {
-                    // Soft invisible fence to keep them from drifting to infinity
                     const margin = 50;
                     if (px < margin) this.steerTo(LOGICAL_SIZE/2, py, 0.5);
                     if (px > LOGICAL_SIZE - margin) this.steerTo(LOGICAL_SIZE/2, py, 0.5);
@@ -397,17 +443,22 @@
         let targetViewer = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 };
 
         let isFighting = false;
+        let gameOver = false; // New flag for win state
         let peers = 0;
         
         let lastInputTime = 0;
         let myInputActive = false;
         let peerInputActive = false;
         
-        // Interaction Flag
         let hasInteracted = false;
 
-        let netSendHeartbeat, netSendSwarmData, netSendFight;
+        let netSendHeartbeat, netSendSwarmData, netSendFight, netSendRematch;
         let lastTransmissionTime = 0;
+
+        // UI References
+        const winModal = document.getElementById('win-modal');
+        const winTitle = document.getElementById('win-title');
+        const rematchBtn = document.getElementById('rematch-btn');
 
         function resize() {
             displayWidth = window.innerWidth;
@@ -420,10 +471,9 @@
         function initSimulation() {
             resize();
             if (particlesHost.length === 0) {
-                // SPAWN PATTERN: Random Circle in Middle
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const angle = rng() * Math.PI * 2;
-                    const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4); // Spread within 1/4th of screen
+                    const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4); 
                     const x = LOGICAL_SIZE/2 + Math.cos(angle) * r;
                     const y = LOGICAL_SIZE/2 + Math.sin(angle) * r;
                     particlesHost.push(new Particle(x, y));
@@ -444,10 +494,24 @@
             return c;
         }
 
+        function resetGame() {
+            // Respawn local particles
+            for (let i = 0; i < NUM_PARTICLES; i++) {
+                const angle = rng() * Math.PI * 2;
+                const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4);
+                const x = LOGICAL_SIZE/2 + Math.cos(angle) * r;
+                const y = LOGICAL_SIZE/2 + Math.sin(angle) * r;
+                particlesHost[i].respawn(x, y);
+            }
+            isFighting = false;
+            gameOver = false;
+            winModal.style.display = 'none';
+            updateStatus();
+        }
+
         function animate() {
             const now = Date.now();
             
-            // Input Detection
             if (now - lastInputTime < 500) {
                 myInputActive = true;
             } else {
@@ -456,8 +520,27 @@
 
             const bothActive = myInputActive && peerInputActive;
 
-            if (isFighting) {
-                document.getElementById('enemy-count').innerText = countAlive(particlesViewer);
+            // --- WIN CONDITION CHECK ---
+            if (isFighting && !gameOver && peers > 0) {
+                const myCount = countAlive(particlesHost);
+                const enemyCount = countAlive(particlesViewer);
+                
+                document.getElementById('enemy-count').innerText = enemyCount;
+                document.getElementById('my-count').innerText = myCount;
+
+                if (myCount === 0 || enemyCount === 0) {
+                    gameOver = true;
+                    if (myCount === 0) {
+                        winTitle.innerText = "YOU LOST";
+                        winTitle.style.color = "#ff0000";
+                    } else {
+                        winTitle.innerText = "YOU WON";
+                        winTitle.style.color = "#00cc00";
+                    }
+                    winModal.style.display = 'flex';
+                }
+            } else if (!isFighting) {
+                document.getElementById('my-count').innerText = countAlive(particlesHost);
             }
 
             // --- NETWORK ---
@@ -487,17 +570,12 @@
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
-            // Removed Border Rect (ctx.strokeRect)
-
-            // Targets - Only draw if interacted
             if (hasInteracted) {
                 ctx.fillStyle = myInputActive ? '#000000' : '#888888'; 
                 ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
             }
             
             if (peers > 0) {
-                // Opponent target visibility depends on their input status
-                // We don't track their 'hasInteracted' explicitly, but 'peerInputActive' implies it.
                 if (peerInputActive) {
                     ctx.fillStyle = (isFighting ? '#0000ff' : '#aaaaaa');
                     ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
@@ -506,7 +584,6 @@
 
             // 1. UPDATE
             for (let p of particlesHost) {
-                // Pass 'bothActive' to control enemy avoidance
                 p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting, bothActive);
                 p.update();
                 p.colliding = false;
@@ -548,7 +625,7 @@
                                 const speedSelfSq = pSelf.velocity.magSq();
                                 const speedEnemySq = pEnemy.velocity.magSq();
 
-                                // Rule 1: Rear-End (> 0.5)
+                                // Rule 1: Rear-End
                                 if (dot > 0.5) {
                                     if (speedEnemySq > speedSelfSq * 4.0) {
                                         pSelf.kill(); 
@@ -557,13 +634,12 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 2: Head-On (< -0.5)
+                                // Rule 2: Head-On
                                 else if (dot < -0.5) {
                                     if (speedSelfSq < speedEnemySq) {
                                         pSelf.kill();
                                         break;
                                     }
-                                    // MUTUALLY ASSURED DESTRUCTION
                                     else if (Math.abs(speedSelfSq - speedEnemySq) < 0.2) {
                                         if (speedSelfSq > 2.0) { 
                                             pSelf.kill();
@@ -575,7 +651,7 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 3: Sideswipe (-0.5 to 0.5)
+                                // Rule 3: Sideswipe
                                 else {
                                     if (speedEnemySq > speedSelfSq) {
                                         pSelf.kill();
@@ -598,8 +674,6 @@
                 for (let p of particlesViewer) p.draw(ctx, enemyColor);
             }
 
-            document.getElementById('my-count').innerText = countAlive(particlesHost);
-
             ctx.restore();
             requestAnimationFrame(animate);
         }
@@ -611,13 +685,15 @@
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
             const [sendFight, getFight] = room.makeAction('fightStart');
+            const [sendRematch, getRematch] = room.makeAction('rm'); // New Rematch Action
 
             netSendHeartbeat = sendHeartbeat;
             netSendSwarmData = sendSwarmData;
             netSendFight = sendFight;
+            netSendRematch = sendRematch;
 
             room.onPeerJoin(() => { peers++; updateStatus(); });
-            room.onPeerLeave(() => { peers--; updateStatus(); if(peers <= 0) isFighting = false; });
+            room.onPeerLeave(() => { peers--; updateStatus(); if(peers <= 0) { isFighting = false; winModal.style.display='none'; } });
 
             getSwarmData((data) => {
                 if (!Array.isArray(data) || data.length < 3) return;
@@ -647,9 +723,28 @@
                 }
             };
 
+            // Setup Rematch Button Logic
+            rematchBtn.onclick = () => {
+                if(peers > 0) {
+                    netSendRematch('R');
+                }
+                resetGame();
+            };
+
+            // Modal Click Outside Logic
+            winModal.onclick = (e) => {
+                if (e.target === winModal) {
+                    winModal.style.display = 'none';
+                }
+            };
+
             getFight((data) => {
                 isFighting = true;
                 updateStatus();
+            });
+
+            getRematch((data) => {
+                resetGame();
             });
 
             getHeartbeat((data) => {});
@@ -657,7 +752,7 @@
 
         function updateTargetLocal(clientX, clientY) {
             lastInputTime = Date.now(); 
-            hasInteracted = true; // Activate swarm control
+            hasInteracted = true; 
             const offsetX = (displayWidth - LOGICAL_SIZE * scale) / 2;
             const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
             let tx = (clientX - offsetX) / scale;
@@ -679,6 +774,7 @@
                 fightBtn.style.display = 'none';
                 enemyStats.style.display = 'none';
                 isFighting = false;
+                winModal.style.display = 'none'; // Ensure modal closes if peer leaves
             } else {
                 if (isFighting) {
                     fightBtn.style.display = 'none';
