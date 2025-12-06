@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>P2P Pixel Swarm (Fluid Duel)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     
     <!-- Trystero P2P Library -->
     <script type="module">
@@ -14,17 +13,18 @@
     </script>
 
     <style>
-        .font-pixel { font-family: 'VT323', monospace; letter-spacing: 0.1em; }
-        
-        html, body { 
+        /* Modern, clean font */
+        body { 
             margin: 0; padding: 0; height: 100%; width: 100%; 
             overflow: hidden; background-color: #f0f0f0; color: #111;
             touch-action: none; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-weight: bold;
         }
         
         canvas { display: block; image-rendering: pixelated; }
 
-        /* Minimal UI Layer */
+        /* Minimal Header */
         #ui-layer { 
             position: absolute; 
             top: 0; left: 0; 
@@ -39,44 +39,42 @@
 
         .ui-element {
             pointer-events: auto;
-            text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
+            /* White outline for readability over particles */
+            text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff,
+                         1px 1px #fff, -1px -1px #fff, 1px -1px #fff, -1px 1px #fff;
         }
 
         #fight-btn {
-            background-color: #3b82f6;
+            background-color: #111;
             color: white;
-            border: 2px solid #000;
-            box-shadow: 4px 4px 0px #000;
-            padding: 5px 20px;
-            font-family: 'VT323', monospace;
-            font-size: 1.5rem;
+            border: none;
+            padding: 8px 24px;
+            font-size: 1.25rem;
+            font-weight: 800;
             cursor: pointer;
             text-transform: uppercase;
-            display: none; /* Hidden by default */
+            letter-spacing: 0.05em;
+            display: none; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.1s;
         }
-        #fight-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0px #000; }
+        #fight-btn:active { transform: scale(0.95); }
         
         #enemy-stats { display: none; color: #0000ff; }
     </style>
 </head>
-<body class="font-pixel">
+<body>
 
-    <!-- Minimalist Header -->
     <div id="ui-layer">
         <!-- LEFT: My Stats -->
         <div class="ui-element text-2xl">
-            ALIVE: <span id="my-count">400</span>
-        </div>
-
-        <!-- CENTER: Status -->
-        <div class="ui-element text-3xl font-bold uppercase tracking-widest text-center" id="status-center">
-            SEARCHING...
+           <span id="my-count">400</span>
         </div>
 
         <!-- RIGHT: Fight Button OR Enemy Stats -->
         <div class="ui-element text-2xl text-right">
-            <button id="fight-btn">FIGHT!</button>
-            <div id="enemy-stats">ENEMY: <span id="enemy-count">400</span></div>
+            <button id="fight-btn">FIGHT</button>
+            <div id="enemy-stats"><span id="enemy-count">400</span></div>
         </div>
     </div>
 
@@ -445,25 +443,9 @@
 
             const bothActive = myInputActive && peerInputActive;
 
-            // --- UI LOGIC ---
-            const statusCenter = document.getElementById('status-center');
-            const enemyStats = document.getElementById('enemy-stats');
-            
-            // Only update text status if fighting to prevent overwriting "CONNECTED"
+            // UI Updates
             if (isFighting) {
-                enemyStats.style.display = 'block';
                 document.getElementById('enemy-count').innerText = countAlive(particlesViewer);
-
-                if (myInputActive && peerInputActive) {
-                    statusCenter.innerText = "TOTAL WAR";
-                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-red-600";
-                } else if (!myInputActive && !peerInputActive) {
-                    statusCenter.innerText = "DIPLOMACY";
-                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-green-600";
-                } else {
-                    statusCenter.innerText = "AGGRESSION";
-                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-orange-500";
-                }
             }
 
             // --- NETWORK ---
@@ -494,7 +476,7 @@
             ctx.scale(scale, scale);
 
             // Canvas Border
-            ctx.strokeStyle = '#e0e0e0';
+            ctx.strokeStyle = '#ccc';
             ctx.lineWidth = 2;
             ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
@@ -519,7 +501,7 @@
                 p.colliding = false;
             }
 
-            // 2. COLLISION (POLISHED RULES)
+            // 2. COLLISION (CUSTOM RULES)
             if (isFighting) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const pSelf = particlesHost[i];
@@ -550,8 +532,8 @@
                                 const speedSelfSq = pSelf.velocity.magSq();
                                 const speedEnemySq = pEnemy.velocity.magSq();
 
-                                // Rule 1: Rear-End
-                                if (dot > 0.4) {
+                                // Rule 1: Rear-End (> 60 deg approx)
+                                if (dot > 0.5) {
                                     if (speedEnemySq > speedSelfSq * 4.0) {
                                         pSelf.kill(); 
                                         break; 
@@ -559,25 +541,33 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 2: Head-On
-                                else if (dot < -0.8) {
+                                // Rule 2: Head-On (< 120 deg approx)
+                                else if (dot < -0.5) {
                                     if (speedSelfSq < speedEnemySq) {
                                         pSelf.kill();
                                         break;
                                     }
-                                    else if (Math.abs(speedSelfSq - speedEnemySq) < 0.1) {
+                                    // MUTUALLY ASSURED DESTRUCTION
+                                    else if (Math.abs(speedSelfSq - speedEnemySq) < 0.2) {
+                                        // "As long as its fast enough"
+                                        if (speedSelfSq > 2.0) { 
+                                            pSelf.kill();
+                                            break;
+                                        } else {
+                                            pSelf.divert(pEnemy);
+                                        }
+                                    } else {
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 3: Sideswipe
+                                // Rule 3: Sideswipe / T-Bone (The gap between -0.5 and 0.5)
                                 else {
-                                    const colVec = new Vector(pEnemy.position.x - pSelf.position.x, pEnemy.position.y - pSelf.position.y).normalize();
-                                    const myImpact = v1n.dot(colVec);
-                                    const enemyImpact = v2n.dot(colVec.mult(-1));
-                                    
-                                    if (enemyImpact > myImpact) {
+                                    // 70-110 deg logic: Speed dominance
+                                    if (speedEnemySq > speedSelfSq) {
                                         pSelf.kill();
                                         break;
+                                    } else {
+                                        pSelf.divert(pEnemy);
                                     }
                                 }
                             }
@@ -602,7 +592,7 @@
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v14_minimal_ui' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v15_clean_ui' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -667,13 +657,10 @@
         window.addEventListener('resize', resize);
 
         function updateStatus() {
-            const statusCenter = document.getElementById('status-center');
             const fightBtn = document.getElementById('fight-btn');
             const enemyStats = document.getElementById('enemy-stats');
 
             if (peers === 0) {
-                statusCenter.innerText = 'SEARCHING...';
-                statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-gray-500";
                 fightBtn.style.display = 'none';
                 enemyStats.style.display = 'none';
                 isFighting = false;
@@ -681,10 +668,7 @@
                 if (isFighting) {
                     fightBtn.style.display = 'none';
                     enemyStats.style.display = 'block';
-                    // Text is handled in animate() loop based on input
                 } else {
-                    statusCenter.innerText = 'PREPARE';
-                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-black";
                     fightBtn.style.display = 'block';
                     fightBtn.disabled = false;
                     enemyStats.style.display = 'none';
