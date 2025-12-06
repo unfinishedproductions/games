@@ -62,7 +62,6 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -337,8 +336,6 @@
                     return;
                 }
 
-                // Smooth Interpolation
-                // 0.2 provides a good balance between smoothing jitter and staying responsive
                 const lerpFactor = 0.2; 
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
@@ -351,12 +348,7 @@
                     const moveX = dx * lerpFactor;
                     const moveY = dy * lerpFactor;
                     this.velocity.set(moveX, moveY);
-                    
-                    // CRITICAL: Limit velocity to MAX_SPEED. 
-                    // This prevents "snappy" catch-up movement from creating artificially high velocity
-                    // which would give an unfair advantage in head-on collisions.
                     this.velocity.limit(MAX_SPEED);
-
                     this.position.add(this.velocity);
                 }
             }
@@ -514,7 +506,11 @@
                             if (pEnemy.dead || pEnemy.isDying) continue; 
 
                             const dx = pSelf.position.x - pEnemy.position.x;
+                            // Pre-check for mobile performance optimization
+                            if (Math.abs(dx) > 10) continue; // Skip if X distance is large
+
                             const dy = pSelf.position.y - pEnemy.position.y;
+                            if (Math.abs(dy) > 10) continue; // Skip if Y distance is large
                             
                             if (dx*dx + dy*dy < COLLISION_SQ) {
                                 pSelf.colliding = true;
@@ -580,7 +576,7 @@
         const TRANSMISSION_RATE = 15; 
 
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_fair' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_mobilefix' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -633,12 +629,12 @@
 
             getFightReq((data, peerId) => {
                 if (role === 'HOST' && !isFighting) {
+                    // ALERT: confirm() blocks JS thread! 
+                    // We increased timeout to 15000ms to handle this delay.
                     if (confirm("Peer requesting DUEL. Accept?")) {
                         isFighting = true;
                         sendFightAns(true);
-                        // Reset Viewer Target to top "Chill Zone"
                         targetViewer = { x: LOGICAL_SIZE/2, y: 80 };
-                        // Respawn Viewer particles in a cloud at the top
                         for(let p of particlesViewer) {
                             p.respawn(LOGICAL_SIZE/2 + (rng() * 400 - 200), rng() * 100 - 50);
                         }
@@ -653,9 +649,7 @@
                     if (accepted) {
                         isFighting = true;
                         fightBtn.style.display = 'none';
-                        // Reset Viewer Target to top "Chill Zone"
                         targetViewer = { x: LOGICAL_SIZE/2, y: 80 };
-                        // Respawn Viewer particles in a cloud at the top
                         for(let p of particlesViewer) {
                             p.respawn(LOGICAL_SIZE/2 + (rng() * 400 - 200), rng() * 100 - 50);
                         }
@@ -689,7 +683,8 @@
             setInterval(() => {
                 const now = Date.now();
 
-                if (role !== 'HOST' && (now - lastHeartbeat > 2000)) {
+                // TIMEOUT FIX: Increased from 2000 to 15000 to allow time for confirm() dialog
+                if (role !== 'HOST' && (now - lastHeartbeat > 15000)) {
                     role = 'HOST';
                     isFighting = false; 
                     updateStatus();
