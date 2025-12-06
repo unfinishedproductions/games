@@ -62,7 +62,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm drone</h1>
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -161,7 +161,7 @@
             kill() {
                 if (this.dead || this.isDying) return;
                 this.isDying = true;
-                this.velocity.mult(0.2); // Slow down significantly upon death trigger
+                this.velocity.mult(0.2); 
             }
 
             divert(other) {
@@ -227,7 +227,6 @@
                     }
                 }
 
-                // Enemy Avoidance (Active when fighting)
                 if (fighting && enemies) {
                     let avoX = 0, avoY = 0, countAvo = 0;
                     for (let i = 0; i < enemies.length; i++) {
@@ -313,23 +312,20 @@
                 this.acceleration.mult(0);
             }
 
-            // CRITICAL: Used for opponents. Must update velocity for collision math to work.
             updateViewer() {
-                // If off-screen/dead logic
+                // Handle death/respawn from server
                 if (this.serverPos.x < -5000) {
                     if (this.position.x < -5000) {
                         this.dead = true;
                         this.isDying = false;
                         return;
                     }
-                    // If it was alive but server says dead, kill it (triggers animation)
                     if (!this.dead && !this.isDying) {
                         this.kill(); 
                     }
                     return;
                 } 
 
-                // Respawn Logic
                 if (this.dead || this.isDying) {
                     this.dead = false; 
                     this.isDying = false; 
@@ -340,21 +336,25 @@
                     return;
                 }
 
-                // Interpolation
+                // FIXED INTERPOLATION LOGIC
                 const lerpFactor = 0.2; 
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
-                if (dx*dx + dy*dy > 9000) { 
+                // Increased threshold (approx 160px) to prevent snapping during fast movement
+                if (dx*dx + dy*dy > 25000) { 
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
                     this.velocity.set(0,0); 
                 } else {
-                    const moveX = dx * lerpFactor;
-                    const moveY = dy * lerpFactor;
-                    this.velocity.set(moveX, moveY); // Update velocity for collision math
+                    // 1. VISUAL: Move without speed limit to close the latency gap smoothly
+                    this.position.x += dx * lerpFactor;
+                    this.position.y += dy * lerpFactor;
+
+                    // 2. PHYSICS: Clamp the stored velocity so collision math stays fair
+                    // If we don't clamp this, "catch up" speed counts as "super force"
+                    this.velocity.set(dx * lerpFactor, dy * lerpFactor);
                     this.velocity.limit(MAX_SPEED);
-                    this.position.add(this.velocity);
                 }
             }
 
@@ -395,12 +395,10 @@
         let isFighting = false;
         let peers = 0;
         
-        // INPUT STATE
         let lastInputTime = 0;
         let myInputActive = false;
         let peerInputActive = false;
 
-        // NETWORK STATE
         let netSendHeartbeat, netSendSwarmData, netSendFight;
         let lastTransmissionTime = 0;
 
@@ -437,7 +435,6 @@
         function animate() {
             const now = Date.now();
             
-            // Input Status
             if (now - lastInputTime < 500) {
                 myInputActive = true;
                 document.getElementById('input-status').classList.add('input-active');
@@ -446,7 +443,6 @@
                 document.getElementById('input-status').classList.remove('input-active');
             }
 
-            // Both must be inputting for kills to happen
             const bothActive = myInputActive && peerInputActive;
 
             // --- NETWORK TRANSMISSION ---
@@ -457,7 +453,6 @@
                 if (peers > 0 && netSendSwarmData) {
                     const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
                     for (let p of particlesHost) {
-                        // Send all particles including dead ones (so array alignment matches)
                         if (!p.dead && !p.isDying) {
                             payload.push(Math.round(p.position.x), Math.round(p.position.y));
                         } else {
@@ -477,12 +472,10 @@
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
-            // Bounds
             ctx.strokeStyle = '#e0e0e0';
             ctx.lineWidth = 2;
             ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
-            // Targets
             ctx.fillStyle = myInputActive ? '#000000' : '#888888'; 
             ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
             
@@ -503,9 +496,8 @@
                 p.colliding = false;
             }
 
-            // 2. COLLISION (Restored Original Logic)
+            // 2. COLLISION
             if (isFighting) {
-                // p1List = particlesHost, p2List = particlesViewer
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const pSelf = particlesHost[i];
                     if (pSelf.dead || pSelf.isDying) continue; 
@@ -524,10 +516,8 @@
                             pEnemy.colliding = true; 
 
                             if (!bothActive) {
-                                // Passive bounce if someone is idle
                                 pSelf.divert(pEnemy);
                             } else {
-                                // ACTIVE COMBAT LOGIC
                                 const v1 = pSelf.velocity.copy();
                                 const v2 = pEnemy.velocity.copy();
                                 const v1n = v1.copy().normalize();
@@ -535,24 +525,22 @@
                                 
                                 const dot = v1n.dot(v2n);
 
-                                // Rear-end (> 0.4 approx 66 deg) -> Bump
+                                // Rear-end
                                 if (dot > 0.4) {
                                     pSelf.divert(pEnemy); 
                                 } 
-                                // Head-on (< -0.8 approx 143 deg) -> Speed check
+                                // Head-on
                                 else if (dot < -0.8) {
                                     if (pSelf.velocity.magSq() < pEnemy.velocity.magSq()) {
                                         pSelf.kill();
-                                        break; // Dead, stop checking collisions for this particle
+                                        break;
                                     }
                                 } 
-                                // Sideswipe -> Angle of Impact check
+                                // Sideswipe
                                 else {
                                     const colVec = new Vector(pEnemy.position.x - pSelf.position.x, pEnemy.position.y - pSelf.position.y).normalize();
-                                    
                                     const myImpact = v1n.dot(colVec);
                                     const enemyImpact = v2n.dot(colVec.mult(-1));
-
                                     if (enemyImpact > myImpact) {
                                         pSelf.kill();
                                         break;
@@ -580,7 +568,7 @@
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v11_restored_phys' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v12_smooth_sync' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -598,7 +586,6 @@
                 
                 peerInputActive = (data[0] === 1);
 
-                // FLIP COORDINATES (The "Across the table" effect)
                 targetViewer.x = LOGICAL_SIZE - data[1];
                 targetViewer.y = LOGICAL_SIZE - data[2];
 
