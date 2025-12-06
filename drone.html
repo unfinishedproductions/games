@@ -136,7 +136,11 @@
                 // Interpolation Target
                 this.serverPos = new Vector(x, y);
                 this.colliding = false; 
-                this.dead = false; // NEW: Dead flag
+                this.dead = false; 
+                
+                // NEW: Explosion State
+                this.isDying = false; 
+                this.expansion = 1.0;
             }
 
             respawn(x, y) {
@@ -144,14 +148,16 @@
                 this.serverPos.set(x, y);
                 this.velocity.set(rng() * 0.4 - 0.2, rng() * 0.4 - 0.2);
                 this.dead = false;
+                this.isDying = false;
+                this.expansion = 1.0;
             }
 
             kill() {
-                this.dead = true;
-                // Move to "Graveyard" (Network will sync this large negative number)
-                this.position.set(-9999, -9999); 
-                this.serverPos.set(-9999, -9999);
-                this.velocity.mult(0);
+                // If already dead or dying, ignore
+                if (this.dead || this.isDying) return;
+
+                this.isDying = true;
+                this.velocity.mult(0.2); // Slow down drift while exploding
             }
 
             applyForce(force) {
@@ -170,7 +176,7 @@
 
             // PHYSICS LOGIC
             applyBehaviors(particles, target) {
-                if (this.dead) return; // Dead particles don't think
+                if (this.dead || this.isDying) return; // Dying particles stop thinking
 
                 let sepX = 0, sepY = 0, countSep = 0;
                 let aliX = 0, aliY = 0;
@@ -180,7 +186,8 @@
 
                 for (let i = 0; i < particles.length; i++) {
                     const other = particles[i];
-                    if (other === this || other.dead) continue; // Ignore dead neighbors
+                    // Ignore dead OR dying neighbors
+                    if (other === this || other.dead || other.isDying) continue; 
 
                     const dx = px - other.position.x;
                     const dy = py - other.position.y;
@@ -254,7 +261,8 @@
             }
 
             update() {
-                if (this.dead) return; // Dead particles don't move
+                // Dying particles still drift slightly (looks better)
+                if (this.dead) return; 
                 this.velocity.add(this.acceleration);
                 this.velocity.limit(MAX_SPEED);
                 this.position.add(this.velocity);
@@ -263,52 +271,68 @@
 
             // VIEWER INTERPOLATION
             updateViewer() {
-                // If the server sends us to the graveyard, we die
+                // If server sends to graveyard, trigger local explosion
                 if (this.serverPos.x < -5000) {
-                    this.dead = true;
-                    this.position.set(-9999, -9999);
+                    if (!this.dead && !this.isDying) {
+                        this.kill(); // Trigger the animation
+                    }
+                    // If we are already dead/dying, let draw() handle the rest
                     return;
-                } else {
-                    this.dead = false; 
-                }
+                } 
 
-                // 1. TUNE THIS: Higher = Snappier/Jittery, Lower = Smooth/Molasses
+                // Alive and Normal
+                this.dead = false; 
+                this.isDying = false; 
+                this.expansion = 1.0;
+
                 const lerpFactor = 0.35; 
 
-                // Calculate the distance to where the server says we should be
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
-                // Anti-Jerk: If distance is massive (teleport), snap instantly
                 if (dx*dx + dy*dy > 2500) { 
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
-                    this.velocity.set(0,0); // Teleporting has no 'speed' for combat
+                    this.velocity.set(0,0); 
                 } else {
-                    // 2. THE FIX: Update Velocity based on how much we are about to move
-                    // This ensures the "Faster kills Slower" logic works for enemy drones too
                     const moveX = dx * lerpFactor;
                     const moveY = dy * lerpFactor;
-                    
                     this.velocity.set(moveX, moveY);
-                    
-                    // Cap the calculated velocity so lagging drones don't become "Super Killers"
-                    // because they are trying to catch up too fast
                     this.velocity.limit(MAX_SPEED);
-
                     this.position.x += moveX;
                     this.position.y += moveY;
                 }
             }
 
             draw(ctx, color) {
-                // Ghost Logic: If dead, do not draw
                 if (this.dead) return;
+
+                // --- NEW EXPLOSION LOGIC ---
+                if (this.isDying) {
+                    this.expansion += 0.2; // How fast it grows per frame
+                    
+                    // Center the growing square
+                    const size = PARTICLE_SIZE * this.expansion;
+                    const offset = (size - PARTICLE_SIZE) / 2;
+                    
+                    ctx.fillStyle = '#ff0000'; // Always Red when dying
+                    ctx.fillRect(this.position.x - offset, this.position.y - offset, size, size);
+
+                    // Once 3x size, actually delete (send to graveyard)
+                    if (this.expansion >= 3.0) {
+                        this.dead = true;
+                        this.position.set(-9999, -9999);
+                        this.serverPos.set(-9999, -9999); // Ensure local state matches
+                    }
+                    return;
+                }
+                // ---------------------------
 
                 ctx.fillStyle = this.colliding ? '#ff0000' : color;
                 ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
             }
         }
+        
 
         // --- ENGINE ---
         const canvas = document.getElementById('swarmCanvas');
