@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Drone</title>
+    <title>P2P Pixel Swarm (Fluid Duel)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script type="module">
@@ -36,8 +36,6 @@
 
         .ui-element {
             pointer-events: auto;
-            text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff,
-                         1px 1px #fff, -1px -1px #fff, 1px -1px #fff, -1px 1px #fff;
         }
 
         #fight-btn {
@@ -57,49 +55,6 @@
         #fight-btn:active { transform: scale(0.95); }
         
         #enemy-stats { display: none; color: #0000ff; }
-
-        /* WIN MODAL STYLES */
-        #win-modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background-color: rgba(0, 0, 0, 0.4);
-            z-index: 50;
-            justify-content: center;
-            align-items: center;
-            backdrop-filter: blur(2px);
-        }
-        
-        #win-content {
-            background-color: white;
-            padding: 2rem 3rem;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            pointer-events: auto;
-            border: 2px solid #111;
-        }
-
-        #win-title {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            text-transform: uppercase;
-            color: #111;
-        }
-
-        #rematch-btn {
-            background-color: #111;
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            font-size: 1.2rem;
-            font-weight: 800;
-            cursor: pointer;
-            text-transform: uppercase;
-            transition: background 0.2s;
-        }
-        #rematch-btn:hover { background-color: #333; }
     </style>
 </head>
 <body>
@@ -111,14 +66,6 @@
         <div class="ui-element text-2xl text-right">
             <button id="fight-btn">FIGHT</button>
             <div id="enemy-stats"><span id="enemy-count">400</span></div>
-        </div>
-    </div>
-
-    <!-- WIN SCREEN MODAL -->
-    <div id="win-modal">
-        <div id="win-content">
-            <div id="win-title">YOU WON</div>
-            <button id="rematch-btn">REMATCH</button>
         </div>
     </div>
 
@@ -195,6 +142,7 @@
                 this.position.set(x, y);
                 this.serverPos.set(x, y);
                 this.velocity.set(rng() * 0.4 - 0.2, rng() * 0.4 - 0.2);
+                this.acceleration.mult(0);
                 this.dead = false;
                 this.isDying = false;
                 this.expansion = 1.0;
@@ -443,7 +391,6 @@
         let targetViewer = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 };
 
         let isFighting = false;
-        let gameOver = false; // New flag for win state
         let peers = 0;
         
         let lastInputTime = 0;
@@ -455,17 +402,23 @@
         let netSendHeartbeat, netSendSwarmData, netSendFight, netSendRematch;
         let lastTransmissionTime = 0;
 
-        // UI References
-        const winModal = document.getElementById('win-modal');
-        const winTitle = document.getElementById('win-title');
-        const rematchBtn = document.getElementById('rematch-btn');
-
         function resize() {
             displayWidth = window.innerWidth;
             displayHeight = window.innerHeight;
             canvas.width = displayWidth;
             canvas.height = displayHeight;
             scale = Math.min(displayWidth / LOGICAL_SIZE, displayHeight / LOGICAL_SIZE);
+        }
+
+        // Respawns particles in the center circle
+        function respawnSwarm() {
+            for(let p of particlesHost) {
+                const angle = rng() * Math.PI * 2;
+                const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4); 
+                const x = LOGICAL_SIZE/2 + Math.cos(angle) * r;
+                const y = LOGICAL_SIZE/2 + Math.sin(angle) * r;
+                p.respawn(x, y);
+            }
         }
 
         function initSimulation() {
@@ -494,21 +447,6 @@
             return c;
         }
 
-        function resetGame() {
-            // Respawn local particles
-            for (let i = 0; i < NUM_PARTICLES; i++) {
-                const angle = rng() * Math.PI * 2;
-                const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4);
-                const x = LOGICAL_SIZE/2 + Math.cos(angle) * r;
-                const y = LOGICAL_SIZE/2 + Math.sin(angle) * r;
-                particlesHost[i].respawn(x, y);
-            }
-            isFighting = false;
-            gameOver = false;
-            winModal.style.display = 'none';
-            updateStatus();
-        }
-
         function animate() {
             const now = Date.now();
             
@@ -519,28 +457,29 @@
             }
 
             const bothActive = myInputActive && peerInputActive;
+            const myCount = countAlive(particlesHost);
+            const enemyCount = countAlive(particlesViewer);
 
-            // --- WIN CONDITION CHECK ---
-            if (isFighting && !gameOver && peers > 0) {
-                const myCount = countAlive(particlesHost);
-                const enemyCount = countAlive(particlesViewer);
+            // UI LOGIC FOR REMATCH
+            const fightBtn = document.getElementById('fight-btn');
+            const enemyStats = document.getElementById('enemy-stats');
+            const enemyCountSpan = document.getElementById('enemy-count');
+
+            if (isFighting) {
+                enemyCountSpan.innerText = enemyCount;
                 
-                document.getElementById('enemy-count').innerText = enemyCount;
-                document.getElementById('my-count').innerText = myCount;
-
+                // If game is over (one side dead), show Rematch button
                 if (myCount === 0 || enemyCount === 0) {
-                    gameOver = true;
-                    if (myCount === 0) {
-                        winTitle.innerText = "YOU LOST";
-                        winTitle.style.color = "#ff0000";
-                    } else {
-                        winTitle.innerText = "YOU WON";
-                        winTitle.style.color = "#00cc00";
+                    if (fightBtn.style.display === 'none') {
+                        fightBtn.innerText = "REMATCH";
+                        fightBtn.style.display = 'block';
+                        enemyStats.style.display = 'none';
                     }
-                    winModal.style.display = 'flex';
+                } else {
+                    // Normal fighting
+                    fightBtn.style.display = 'none';
+                    enemyStats.style.display = 'block';
                 }
-            } else if (!isFighting) {
-                document.getElementById('my-count').innerText = countAlive(particlesHost);
             }
 
             // --- NETWORK ---
@@ -625,7 +564,6 @@
                                 const speedSelfSq = pSelf.velocity.magSq();
                                 const speedEnemySq = pEnemy.velocity.magSq();
 
-                                // Rule 1: Rear-End
                                 if (dot > 0.5) {
                                     if (speedEnemySq > speedSelfSq * 4.0) {
                                         pSelf.kill(); 
@@ -634,7 +572,6 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 2: Head-On
                                 else if (dot < -0.5) {
                                     if (speedSelfSq < speedEnemySq) {
                                         pSelf.kill();
@@ -651,7 +588,6 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 3: Sideswipe
                                 else {
                                     if (speedEnemySq > speedSelfSq) {
                                         pSelf.kill();
@@ -674,18 +610,20 @@
                 for (let p of particlesViewer) p.draw(ctx, enemyColor);
             }
 
+            document.getElementById('my-count').innerText = myCount;
+
             ctx.restore();
             requestAnimationFrame(animate);
         }
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v16_no_borders' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v17_rematch' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
             const [sendFight, getFight] = room.makeAction('fightStart');
-            const [sendRematch, getRematch] = room.makeAction('rm'); // New Rematch Action
+            const [sendRematch, getRematch] = room.makeAction('rematch');
 
             netSendHeartbeat = sendHeartbeat;
             netSendSwarmData = sendSwarmData;
@@ -693,7 +631,7 @@
             netSendRematch = sendRematch;
 
             room.onPeerJoin(() => { peers++; updateStatus(); });
-            room.onPeerLeave(() => { peers--; updateStatus(); if(peers <= 0) { isFighting = false; winModal.style.display='none'; } });
+            room.onPeerLeave(() => { peers--; updateStatus(); if(peers <= 0) isFighting = false; });
 
             getSwarmData((data) => {
                 if (!Array.isArray(data) || data.length < 3) return;
@@ -717,24 +655,18 @@
             const fightBtn = document.getElementById('fight-btn');
             fightBtn.onclick = () => {
                 if (peers > 0) {
-                    isFighting = true;
-                    sendFight('GO');
-                    updateStatus();
-                }
-            };
-
-            // Setup Rematch Button Logic
-            rematchBtn.onclick = () => {
-                if(peers > 0) {
-                    netSendRematch('R');
-                }
-                resetGame();
-            };
-
-            // Modal Click Outside Logic
-            winModal.onclick = (e) => {
-                if (e.target === winModal) {
-                    winModal.style.display = 'none';
+                    // Check if it's a REMATCH or a fresh fight
+                    if (fightBtn.innerText === "REMATCH") {
+                        respawnSwarm();
+                        netSendRematch('GO');
+                        // Force UI update to prevent flicker
+                        fightBtn.style.display = 'none';
+                        document.getElementById('enemy-stats').style.display = 'block';
+                    } else {
+                        isFighting = true;
+                        sendFight('GO');
+                        updateStatus();
+                    }
                 }
             };
 
@@ -744,7 +676,9 @@
             });
 
             getRematch((data) => {
-                resetGame();
+                respawnSwarm();
+                isFighting = true;
+                // UI will auto-update in animate loop based on counts
             });
 
             getHeartbeat((data) => {});
@@ -774,12 +708,12 @@
                 fightBtn.style.display = 'none';
                 enemyStats.style.display = 'none';
                 isFighting = false;
-                winModal.style.display = 'none'; // Ensure modal closes if peer leaves
             } else {
                 if (isFighting) {
                     fightBtn.style.display = 'none';
                     enemyStats.style.display = 'block';
                 } else {
+                    fightBtn.innerText = "FIGHT";
                     fightBtn.style.display = 'block';
                     fightBtn.disabled = false;
                     enemyStats.style.display = 'none';
