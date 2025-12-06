@@ -57,7 +57,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">DRONE</h1>
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">DRONES</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -609,8 +609,8 @@
         }
 
         window.addEventListener('mousemove', e => updateTargetLocal(e.clientX, e.clientY));
-        window.addEventListener('touchmove', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-        window.addEventListener('touchstart', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
         window.addEventListener('resize', resize);
 
         function updateStatus() {
