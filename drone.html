@@ -57,7 +57,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
+            
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -70,18 +70,13 @@
 
     <script type="module">
         // --- CONFIGURATION ---
-        // Reduced logical size = Zoomed in camera
         const LOGICAL_SIZE = 600; 
-        
         const NUM_PARTICLES = 400; 
-        
-        // Increased size for visibility
         const PARTICLE_SIZE = 4.5; 
-        
         const MAX_SPEED = 1.8; 
         const MAX_FORCE = 0.05; 
 
-        // Physics - Adjusted for the zoomed-in scale
+        // Physics
         const PERCEPTION_RADIUS = 45; 
         const SEPARATION_DISTANCE = 25; 
         const SEPARATION_FACTOR = 1.2; 
@@ -127,7 +122,6 @@
                 return this;
             }
             set(x, y) { this.x = x; this.y = y; return this; }
-            copy() { return new Vector(this.x, this.y); }
         }
 
         class Particle {
@@ -155,6 +149,14 @@
                 this.expansion = 1.0;
             }
 
+            // Move to off-screen graveyard
+            hide() {
+                this.dead = true;
+                this.isDying = false;
+                this.position.set(-9999, -9999);
+                this.serverPos.set(-9999, -9999);
+            }
+
             kill() {
                 if (this.dead || this.isDying) return;
                 this.isDying = true;
@@ -165,37 +167,27 @@
                 this.acceleration.add(force);
             }
 
-            // REYNOLDS STEERING: Desired - Velocity
             steerTo(targetX, targetY, factor) {
                 let desiredX = targetX - this.position.x;
                 let desiredY = targetY - this.position.y;
-                
-                // Normalize and set to max speed
                 const dMag = Math.sqrt(desiredX*desiredX + desiredY*desiredY);
                 if (dMag > 0) {
                     desiredX = (desiredX / dMag) * MAX_SPEED;
                     desiredY = (desiredY / dMag) * MAX_SPEED;
                 }
-
-                // Steering = Desired - Velocity
                 let steerX = desiredX - this.velocity.x;
                 let steerY = desiredY - this.velocity.y;
-
-                // Limit force
                 const steerMagSq = steerX*steerX + steerY*steerY;
                 const maxForceSq = (MAX_FORCE * factor) ** 2;
-                
                 if (steerMagSq > maxForceSq) {
                     const mul = (MAX_FORCE * factor) / Math.sqrt(steerMagSq);
                     steerX *= mul;
                     steerY *= mul;
                 }
-                
                 this.acceleration.x += steerX;
                 this.acceleration.y += steerY;
             }
 
-            // NEW PHYSICS LOGIC (Merged from your preferred sim)
             applyBehaviors(particles, target) {
                 if (this.dead || this.isDying) return;
 
@@ -205,7 +197,6 @@
                 const px = this.position.x;
                 const py = this.position.y;
 
-                // Single loop for performance, but using updated math
                 for (let i = 0; i < particles.length; i++) {
                     const other = particles[i];
                     if (other === this || other.dead || other.isDying) continue;
@@ -216,16 +207,11 @@
 
                     if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
                         const dist = Math.sqrt(dSq);
-                        
-                        // 1. Separation with Inverse Square Law (Stronger repulsion when close)
                         if (dSq < SEPARATION_DISTANCE_SQ) {
-                            // Weight by distance (closer = bigger force)
                             sepX += (dx / dist) / dist; 
                             sepY += (dy / dist) / dist;
                             countSep++;
                         }
-
-                        // 2. Alignment & Cohesion Accumulation
                         aliX += other.velocity.x;
                         aliY += other.velocity.y;
                         cohX += other.position.x;
@@ -234,16 +220,10 @@
                     }
                 }
 
-                // Apply Separation (Steering)
                 if (countSep > 0) {
                     sepX /= countSep; sepY /= countSep;
-                    // Normalize to max speed
                     const mag = Math.sqrt(sepX*sepX + sepY*sepY);
-                    if (mag > 0) {
-                        sepX = (sepX/mag) * MAX_SPEED;
-                        sepY = (sepY/mag) * MAX_SPEED;
-                    }
-                    // Implement Steering: (Desired - Velocity) limited by Force
+                    if (mag > 0) { sepX = (sepX/mag) * MAX_SPEED; sepY = (sepY/mag) * MAX_SPEED; }
                     let sX = sepX - this.velocity.x;
                     let sY = sepY - this.velocity.y;
                     const sMagSq = sX*sX + sY*sY;
@@ -256,14 +236,10 @@
                     this.acceleration.y += sY;
                 }
 
-                // Apply Alignment (Steering)
                 if (countCoh > 0) {
                     aliX /= countCoh; aliY /= countCoh;
                     const mag = Math.sqrt(aliX*aliX + aliY*aliY);
-                    if (mag > 0) {
-                        aliX = (aliX/mag) * MAX_SPEED;
-                        aliY = (aliY/mag) * MAX_SPEED;
-                    }
+                    if (mag > 0) { aliX = (aliX/mag) * MAX_SPEED; aliY = (aliY/mag) * MAX_SPEED; }
                     let sX = aliX - this.velocity.x;
                     let sY = aliY - this.velocity.y;
                     const sMagSq = sX*sX + sY*sY;
@@ -275,18 +251,13 @@
                     this.acceleration.x += sX;
                     this.acceleration.y += sY;
 
-                    // Apply Cohesion (Steering) with DYNAMIC FACTOR
                     cohX /= countCoh; cohY /= countCoh;
-                    
                     let dynamicFactor = COHESION_FACTOR;
-                    // Dynamic breathing logic from your preferred sim
-                    if (countCoh > DENSITY_HIGH_THRESHOLD) dynamicFactor *= 0.7; // Crowd? Spread out
-                    else if (countCoh <= DENSITY_LOW_THRESHOLD) dynamicFactor *= 1.3; // Lonely? Group up
-
+                    if (countCoh > DENSITY_HIGH_THRESHOLD) dynamicFactor *= 0.7; 
+                    else if (countCoh <= DENSITY_LOW_THRESHOLD) dynamicFactor *= 1.3; 
                     this.steerTo(cohX, cohY, dynamicFactor);
                 }
 
-                // Apply Target Seeking (Steering)
                 const dResX = target.x - px;
                 const dResY = target.y - py;
                 if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
@@ -302,23 +273,34 @@
                 this.acceleration.mult(0);
             }
 
-            // VIEWER INTERPOLATION
             updateViewer() {
-                // If server sends to graveyard, trigger local explosion
+                // If server sends "Dead", we handle it
                 if (this.serverPos.x < -5000) {
+                    if (this.position.x < -5000) {
+                        this.dead = true;
+                        this.isDying = false;
+                        return;
+                    }
+                    // Only explode if I was recently visible
                     if (!this.dead && !this.isDying) {
                         this.kill(); 
                     }
                     return;
                 } 
 
-                // Alive and Normal
-                this.dead = false; 
-                this.isDying = false; 
-                this.expansion = 1.0;
+                // Resurrect if needed
+                if (this.dead || this.isDying) {
+                    this.dead = false; 
+                    this.isDying = false; 
+                    this.expansion = 1.0;
+                    this.position.x = this.serverPos.x;
+                    this.position.y = this.serverPos.y;
+                    this.velocity.set(0,0);
+                    return;
+                }
 
+                // Interpolate
                 const lerpFactor = 0.35; 
-
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
@@ -339,7 +321,6 @@
             draw(ctx, color) {
                 if (this.dead) return;
 
-                // --- EXPLOSION ANIMATION ---
                 if (this.isDying) {
                     this.expansion += 0.2; 
                     const size = PARTICLE_SIZE * this.expansion;
@@ -348,9 +329,7 @@
                     ctx.fillRect(this.position.x - offset, this.position.y - offset, size, size);
 
                     if (this.expansion >= 3.0) {
-                        this.dead = true;
-                        this.position.set(-9999, -9999);
-                        this.serverPos.set(-9999, -9999); 
+                        this.hide(); // Use helper to fully reset to graveyard
                     }
                     return;
                 }
@@ -373,7 +352,6 @@
         let targetHost = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 }; 
         let targetViewer = { x: LOGICAL_SIZE/2, y: LOGICAL_SIZE/2 };
 
-        // --- NETWORK STATE ---
         let role = 'WAITING';
         let isFighting = false;
         let peers = 0;
@@ -392,8 +370,14 @@
             resize();
             if (particlesHost.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
+                    // Host particles start active
                     particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
-                    particlesViewer.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
+                    
+                    // Viewer particles start DEAD (hidden) to prevent ghost collisions
+                    // They will only appear when network data wakes them up
+                    const p = new Particle(-9999, -9999);
+                    p.hide();
+                    particlesViewer.push(p);
                 }
             }
         }
@@ -428,7 +412,7 @@
                 ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
             }
 
-            // 1. UPDATE LOOPS
+            // 1. UPDATE
             if (role === 'HOST') {
                 for (let p of particlesHost) {
                     p.applyBehaviors(particlesHost, targetHost);
@@ -455,7 +439,7 @@
                 }
             }
 
-            // 2. COLLISION DETECTION
+            // 2. COLLISION
             if (isFighting) {
                 if (role === 'HOST') {
                     for (let i = 0; i < NUM_PARTICLES; i++) {
@@ -512,7 +496,6 @@
                 for (let p of particlesViewer) p.draw(ctx, '#0000ff');
             }
 
-            // Update UI count
             let aliveCount = 0;
             if (role === 'HOST') aliveCount = countAlive(particlesHost);
             else if (role === 'VIEWER') aliveCount = countAlive(particlesViewer);
@@ -522,11 +505,11 @@
             requestAnimationFrame(animate);
         }
 
-        // --- NETWORKING ---
+        // --- NETWORK ---
         const TRANSMISSION_RATE = 15; 
 
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v6_fluid' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v7_clean' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -551,6 +534,13 @@
                         p.serverPos.y = data[i+1];
                     }
                     pIndex++;
+                }
+                
+                // IMPORTANT FIX: Clean up stale ghosts
+                // If the data packet stopped sending particles (because they died),
+                // we must hide the remaining ones in our local array.
+                for (let i = pIndex; i < targetArray.length; i++) {
+                    targetArray[i].hide();
                 }
             }
 
@@ -630,7 +620,10 @@
                     
                     const payload = [Math.round(targetHost.x), Math.round(targetHost.y)];
                     for (let p of particlesHost) {
-                        payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        // Only send alive particles to save bandwidth and prevent ghosting
+                        if (!p.dead && !p.isDying) {
+                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        }
                     }
                     sendSwarmData(payload);
                 }
@@ -638,7 +631,9 @@
                 if (role === 'VIEWER' && isFighting) {
                     const payload = [Math.round(targetViewer.x), Math.round(targetViewer.y)];
                     for (let p of particlesViewer) {
-                        payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        if (!p.dead && !p.isDying) {
+                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        }
                     }
                     sendSwarmData2(payload);
                 }
@@ -661,7 +656,6 @@
             }
         }
 
-        // CORRECTED TOUCH LISTENERS
         canvas.addEventListener('mousemove', e => updateTargetLocal(e.clientX, e.clientY));
         canvas.addEventListener('touchmove', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
         canvas.addEventListener('touchstart', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
