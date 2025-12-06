@@ -24,16 +24,22 @@
         
         canvas { display: block; image-rendering: pixelated; }
 
-        #ui-layer { position: absolute; top: 1rem; right: 1rem; pointer-events: none; text-align: right; }
-        
-        .status-box { 
-            background: #fff; 
-            border: 2px solid #000; 
-            box-shadow: 4px 4px 0px #000;
-            padding: 10px 15px; 
-            display: inline-block; 
-            pointer-events: auto; 
-            margin-bottom: 10px;
+        /* Minimal UI Layer */
+        #ui-layer { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; 
+            padding: 1.5rem; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-start;
+            pointer-events: none; 
+            z-index: 10;
+        }
+
+        .ui-element {
+            pointer-events: auto;
+            text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
         }
 
         #fight-btn {
@@ -41,35 +47,37 @@
             color: white;
             border: 2px solid #000;
             box-shadow: 4px 4px 0px #000;
-            padding: 5px 15px;
+            padding: 5px 20px;
             font-family: 'VT323', monospace;
             font-size: 1.5rem;
             cursor: pointer;
-            pointer-events: auto;
-            display: none; 
             text-transform: uppercase;
+            display: none; /* Hidden by default */
         }
         #fight-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0px #000; }
-        #fight-btn:disabled { background-color: #9ca3af; box-shadow: none; transform: translate(2px, 2px); }
         
-        .input-indicator {
-            width: 10px; height: 10px; display: inline-block; border-radius: 50%; background: #ccc; margin-left: 5px;
-        }
-        .input-active { background: #00ff00; box-shadow: 0 0 5px #00ff00; }
+        #enemy-stats { display: none; color: #0000ff; }
     </style>
 </head>
 <body class="font-pixel">
 
+    <!-- Minimalist Header -->
     <div id="ui-layer">
-        <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
-            <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
-            <p>PEERS: <span id="peer-count">0</span></p>
-            <p>ALIVE: <span id="drone-count">0</span></p>
-            <p>INPUT: <span id="input-status" class="input-indicator"></span></p>
+        <!-- LEFT: My Stats -->
+        <div class="ui-element text-2xl">
+            ALIVE: <span id="my-count">400</span>
         </div>
-        <br>
-        <button id="fight-btn">FIGHT!</button>
+
+        <!-- CENTER: Status -->
+        <div class="ui-element text-3xl font-bold uppercase tracking-widest text-center" id="status-center">
+            SEARCHING...
+        </div>
+
+        <!-- RIGHT: Fight Button OR Enemy Stats -->
+        <div class="ui-element text-2xl text-right">
+            <button id="fight-btn">FIGHT!</button>
+            <div id="enemy-stats">ENEMY: <span id="enemy-count">400</span></div>
+        </div>
     </div>
 
     <canvas id="swarmCanvas"></canvas>
@@ -96,6 +104,7 @@
         const SEEK_ACTIVATION_SQ = 100 * 100;
         const COLLISION_SQ = (PARTICLE_SIZE * 2) ** 2; 
 
+        // RNG
         function sfc32(a, b, c, d) {
             return function() {
                 a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
@@ -134,7 +143,6 @@
                 this.position = new Vector(x, y);
                 this.velocity = new Vector(rng() * 0.4 - 0.2, rng() * 0.4 - 0.2);
                 this.acceleration = new Vector(0, 0);
-                
                 this.serverPos = new Vector(x, y);
                 this.colliding = false; 
                 this.dead = false; 
@@ -313,7 +321,6 @@
             }
 
             updateViewer() {
-                // Handle death/respawn from server
                 if (this.serverPos.x < -5000) {
                     if (this.position.x < -5000) {
                         this.dead = true;
@@ -336,23 +343,17 @@
                     return;
                 }
 
-                // FIXED INTERPOLATION LOGIC
                 const lerpFactor = 0.2; 
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
-                // Increased threshold (approx 160px) to prevent snapping during fast movement
                 if (dx*dx + dy*dy > 25000) { 
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
                     this.velocity.set(0,0); 
                 } else {
-                    // 1. VISUAL: Move without speed limit to close the latency gap smoothly
                     this.position.x += dx * lerpFactor;
                     this.position.y += dy * lerpFactor;
-
-                    // 2. PHYSICS: Clamp the stored velocity so collision math stays fair
-                    // If we don't clamp this, "catch up" speed counts as "super force"
                     this.velocity.set(dx * lerpFactor, dy * lerpFactor);
                     this.velocity.limit(MAX_SPEED);
                 }
@@ -435,17 +436,37 @@
         function animate() {
             const now = Date.now();
             
+            // Input Detection
             if (now - lastInputTime < 500) {
                 myInputActive = true;
-                document.getElementById('input-status').classList.add('input-active');
             } else {
                 myInputActive = false;
-                document.getElementById('input-status').classList.remove('input-active');
             }
 
             const bothActive = myInputActive && peerInputActive;
 
-            // --- NETWORK TRANSMISSION ---
+            // --- UI LOGIC ---
+            const statusCenter = document.getElementById('status-center');
+            const enemyStats = document.getElementById('enemy-stats');
+            
+            // Only update text status if fighting to prevent overwriting "CONNECTED"
+            if (isFighting) {
+                enemyStats.style.display = 'block';
+                document.getElementById('enemy-count').innerText = countAlive(particlesViewer);
+
+                if (myInputActive && peerInputActive) {
+                    statusCenter.innerText = "TOTAL WAR";
+                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-red-600";
+                } else if (!myInputActive && !peerInputActive) {
+                    statusCenter.innerText = "DIPLOMACY";
+                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-green-600";
+                } else {
+                    statusCenter.innerText = "AGGRESSION";
+                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-orange-500";
+                }
+            }
+
+            // --- NETWORK ---
             if (now - lastTransmissionTime > 66) {
                 lastTransmissionTime = now;
                 if (netSendHeartbeat) netSendHeartbeat(1); 
@@ -472,10 +493,12 @@
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
+            // Canvas Border
             ctx.strokeStyle = '#e0e0e0';
             ctx.lineWidth = 2;
             ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
+            // Targets
             ctx.fillStyle = myInputActive ? '#000000' : '#888888'; 
             ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
             
@@ -496,7 +519,7 @@
                 p.colliding = false;
             }
 
-            // 2. COLLISION
+            // 2. COLLISION (POLISHED RULES)
             if (isFighting) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const pSelf = particlesHost[i];
@@ -524,23 +547,34 @@
                                 const v2n = v2.copy().normalize();
                                 
                                 const dot = v1n.dot(v2n);
+                                const speedSelfSq = pSelf.velocity.magSq();
+                                const speedEnemySq = pEnemy.velocity.magSq();
 
-                                // Rear-end
+                                // Rule 1: Rear-End
                                 if (dot > 0.4) {
-                                    pSelf.divert(pEnemy); 
+                                    if (speedEnemySq > speedSelfSq * 4.0) {
+                                        pSelf.kill(); 
+                                        break; 
+                                    } else {
+                                        pSelf.divert(pEnemy);
+                                    }
                                 } 
-                                // Head-on
+                                // Rule 2: Head-On
                                 else if (dot < -0.8) {
-                                    if (pSelf.velocity.magSq() < pEnemy.velocity.magSq()) {
+                                    if (speedSelfSq < speedEnemySq) {
                                         pSelf.kill();
                                         break;
                                     }
+                                    else if (Math.abs(speedSelfSq - speedEnemySq) < 0.1) {
+                                        pSelf.divert(pEnemy);
+                                    }
                                 } 
-                                // Sideswipe
+                                // Rule 3: Sideswipe
                                 else {
                                     const colVec = new Vector(pEnemy.position.x - pSelf.position.x, pEnemy.position.y - pSelf.position.y).normalize();
                                     const myImpact = v1n.dot(colVec);
                                     const enemyImpact = v2n.dot(colVec.mult(-1));
+                                    
                                     if (enemyImpact > myImpact) {
                                         pSelf.kill();
                                         break;
@@ -560,7 +594,7 @@
                 for (let p of particlesViewer) p.draw(ctx, enemyColor);
             }
 
-            document.getElementById('drone-count').innerText = countAlive(particlesHost);
+            document.getElementById('my-count').innerText = countAlive(particlesHost);
 
             ctx.restore();
             requestAnimationFrame(animate);
@@ -568,7 +602,7 @@
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v12_smooth_sync' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v14_minimal_ui' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -583,9 +617,7 @@
 
             getSwarmData((data) => {
                 if (!Array.isArray(data) || data.length < 3) return;
-                
                 peerInputActive = (data[0] === 1);
-
                 targetViewer.x = LOGICAL_SIZE - data[1];
                 targetViewer.y = LOGICAL_SIZE - data[2];
 
@@ -595,14 +627,8 @@
                         const p = particlesViewer[pIndex];
                         const rx = data[i];
                         const ry = data[i+1];
-                        
-                        if (rx < -5000) {
-                            p.serverPos.x = -9999;
-                            p.serverPos.y = -9999;
-                        } else {
-                            p.serverPos.x = LOGICAL_SIZE - rx;
-                            p.serverPos.y = LOGICAL_SIZE - ry;
-                        }
+                        if (rx < -5000) { p.serverPos.x = -9999; p.serverPos.y = -9999; } 
+                        else { p.serverPos.x = LOGICAL_SIZE - rx; p.serverPos.y = LOGICAL_SIZE - ry; }
                     }
                     pIndex++;
                 }
@@ -631,7 +657,6 @@
             const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
             let tx = (clientX - offsetX) / scale;
             let ty = (clientY - offsetY) / scale;
-
             targetHost.x = tx;
             targetHost.y = ty;
         }
@@ -642,28 +667,27 @@
         window.addEventListener('resize', resize);
 
         function updateStatus() {
-            const statusText = document.getElementById('status-text');
-            const peerText = document.getElementById('peer-count');
+            const statusCenter = document.getElementById('status-center');
             const fightBtn = document.getElementById('fight-btn');
-
-            peerText.innerText = peers;
+            const enemyStats = document.getElementById('enemy-stats');
 
             if (peers === 0) {
-                statusText.innerText = 'SEARCHING...';
-                statusText.className = 'text-gray-500';
+                statusCenter.innerText = 'SEARCHING...';
+                statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-gray-500";
                 fightBtn.style.display = 'none';
+                enemyStats.style.display = 'none';
                 isFighting = false;
             } else {
                 if (isFighting) {
-                    statusText.innerText = 'DUELING';
-                    statusText.className = 'text-red-600 font-bold';
                     fightBtn.style.display = 'none';
+                    enemyStats.style.display = 'block';
+                    // Text is handled in animate() loop based on input
                 } else {
-                    statusText.innerText = 'PEER FOUND';
-                    statusText.className = 'text-green-600 font-bold';
-                    fightBtn.style.display = 'inline-block';
+                    statusCenter.innerText = 'PREPARE';
+                    statusCenter.className = "ui-element text-3xl font-bold uppercase tracking-widest text-center text-black";
+                    fightBtn.style.display = 'block';
                     fightBtn.disabled = false;
-                    fightBtn.innerText = "FIGHT!";
+                    enemyStats.style.display = 'none';
                 }
             }
         }
