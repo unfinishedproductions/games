@@ -3,17 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Pixel Swarm (Fluid Duel)</title>
+    <title>Drone</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Trystero P2P Library -->
     <script type="module">
         import { joinRoom } from 'https://cdn.skypack.dev/trystero/torrent';
         window.joinRoom = joinRoom;
     </script>
 
     <style>
-        /* Modern, clean font */
         body { 
             margin: 0; padding: 0; height: 100%; width: 100%; 
             overflow: hidden; background-color: #f0f0f0; color: #111;
@@ -24,7 +22,6 @@
         
         canvas { display: block; image-rendering: pixelated; }
 
-        /* Minimal Header */
         #ui-layer { 
             position: absolute; 
             top: 0; left: 0; 
@@ -39,7 +36,6 @@
 
         .ui-element {
             pointer-events: auto;
-            /* White outline for readability over particles */
             text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff,
                          1px 1px #fff, -1px -1px #fff, 1px -1px #fff, -1px 1px #fff;
         }
@@ -66,12 +62,9 @@
 <body>
 
     <div id="ui-layer">
-        <!-- LEFT: My Stats -->
         <div class="ui-element text-2xl">
-           <span id="my-count">400</span>
+            <span id="my-count">400</span>
         </div>
-
-        <!-- RIGHT: Fight Button OR Enemy Stats -->
         <div class="ui-element text-2xl text-right">
             <button id="fight-btn">FIGHT</button>
             <div id="enemy-stats"><span id="enemy-count">400</span></div>
@@ -95,14 +88,13 @@
         const ALIGNMENT_FACTOR = 0.6;  
         const COHESION_FACTOR = 0.45;
         const TARGET_SEEK_FACTOR = 0.5; 
-        const ENEMY_AVOID_FACTOR = 1.5; 
+        const ENEMY_AVOID_FACTOR = 2.0; // Increased slightly for idle avoidance
 
         const PERCEPTION_RADIUS_SQ = PERCEPTION_RADIUS * PERCEPTION_RADIUS;
         const SEPARATION_DISTANCE_SQ = SEPARATION_DISTANCE * SEPARATION_DISTANCE;
         const SEEK_ACTIVATION_SQ = 100 * 100;
         const COLLISION_SQ = (PARTICLE_SIZE * 2) ** 2; 
 
-        // RNG
         function sfc32(a, b, c, d) {
             return function() {
                 a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
@@ -201,7 +193,7 @@
                 this.acceleration.y += steerY;
             }
 
-            applyBehaviors(particles, target, enemies, fighting) {
+            applyBehaviors(particles, target, enemies, fighting, bothActive) {
                 if (this.dead || this.isDying) return;
 
                 let sepX = 0, sepY = 0, countSep = 0;
@@ -233,7 +225,9 @@
                     }
                 }
 
-                if (fighting && enemies) {
+                // --- MODIFIED ENEMY LOGIC ---
+                // Only avoid enemies if we are NOT in full war (bothActive)
+                if (fighting && enemies && !bothActive) {
                     let avoX = 0, avoY = 0, countAvo = 0;
                     for (let i = 0; i < enemies.length; i++) {
                         const other = enemies[i];
@@ -303,10 +297,21 @@
                     this.steerTo(cohX, cohY, dynamicFactor);
                 }
 
-                const dResX = target.x - px;
-                const dResY = target.y - py;
-                if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
-                    this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
+                // --- MODIFIED TARGET LOGIC ---
+                // If user interacted, seek target. 
+                if (hasInteracted) {
+                    const dResX = target.x - px;
+                    const dResY = target.y - py;
+                    if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
+                        this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
+                    }
+                } else {
+                    // Soft invisible fence to keep them from drifting to infinity
+                    const margin = 50;
+                    if (px < margin) this.steerTo(LOGICAL_SIZE/2, py, 0.5);
+                    if (px > LOGICAL_SIZE - margin) this.steerTo(LOGICAL_SIZE/2, py, 0.5);
+                    if (py < margin) this.steerTo(px, LOGICAL_SIZE/2, 0.5);
+                    if (py > LOGICAL_SIZE - margin) this.steerTo(px, LOGICAL_SIZE/2, 0.5);
                 }
             }
 
@@ -397,6 +402,9 @@
         let lastInputTime = 0;
         let myInputActive = false;
         let peerInputActive = false;
+        
+        // Interaction Flag
+        let hasInteracted = false;
 
         let netSendHeartbeat, netSendSwarmData, netSendFight;
         let lastTransmissionTime = 0;
@@ -412,8 +420,13 @@
         function initSimulation() {
             resize();
             if (particlesHost.length === 0) {
+                // SPAWN PATTERN: Random Circle in Middle
                 for (let i = 0; i < NUM_PARTICLES; i++) {
-                    particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
+                    const angle = rng() * Math.PI * 2;
+                    const r = Math.sqrt(rng()) * (LOGICAL_SIZE / 4); // Spread within 1/4th of screen
+                    const x = LOGICAL_SIZE/2 + Math.cos(angle) * r;
+                    const y = LOGICAL_SIZE/2 + Math.sin(angle) * r;
+                    particlesHost.push(new Particle(x, y));
                 }
             }
             if (particlesViewer.length === 0) {
@@ -443,7 +456,6 @@
 
             const bothActive = myInputActive && peerInputActive;
 
-            // UI Updates
             if (isFighting) {
                 document.getElementById('enemy-count').innerText = countAlive(particlesViewer);
             }
@@ -475,23 +487,27 @@
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
-            // Canvas Border
-            ctx.strokeStyle = '#ccc';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
+            // Removed Border Rect (ctx.strokeRect)
 
-            // Targets
-            ctx.fillStyle = myInputActive ? '#000000' : '#888888'; 
-            ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
+            // Targets - Only draw if interacted
+            if (hasInteracted) {
+                ctx.fillStyle = myInputActive ? '#000000' : '#888888'; 
+                ctx.fillRect(targetHost.x - 2, targetHost.y - 2, 4, 4);
+            }
             
             if (peers > 0) {
-                ctx.fillStyle = peerInputActive ? (isFighting ? '#0000ff' : '#aaaaaa') : '#dddddd'; 
-                ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
+                // Opponent target visibility depends on their input status
+                // We don't track their 'hasInteracted' explicitly, but 'peerInputActive' implies it.
+                if (peerInputActive) {
+                    ctx.fillStyle = (isFighting ? '#0000ff' : '#aaaaaa');
+                    ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
+                }
             }
 
             // 1. UPDATE
             for (let p of particlesHost) {
-                p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting);
+                // Pass 'bothActive' to control enemy avoidance
+                p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting, bothActive);
                 p.update();
                 p.colliding = false;
             }
@@ -501,7 +517,7 @@
                 p.colliding = false;
             }
 
-            // 2. COLLISION (CUSTOM RULES)
+            // 2. COLLISION
             if (isFighting) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const pSelf = particlesHost[i];
@@ -532,7 +548,7 @@
                                 const speedSelfSq = pSelf.velocity.magSq();
                                 const speedEnemySq = pEnemy.velocity.magSq();
 
-                                // Rule 1: Rear-End (> 60 deg approx)
+                                // Rule 1: Rear-End (> 0.5)
                                 if (dot > 0.5) {
                                     if (speedEnemySq > speedSelfSq * 4.0) {
                                         pSelf.kill(); 
@@ -541,7 +557,7 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 2: Head-On (< 120 deg approx)
+                                // Rule 2: Head-On (< -0.5)
                                 else if (dot < -0.5) {
                                     if (speedSelfSq < speedEnemySq) {
                                         pSelf.kill();
@@ -549,7 +565,6 @@
                                     }
                                     // MUTUALLY ASSURED DESTRUCTION
                                     else if (Math.abs(speedSelfSq - speedEnemySq) < 0.2) {
-                                        // "As long as its fast enough"
                                         if (speedSelfSq > 2.0) { 
                                             pSelf.kill();
                                             break;
@@ -560,9 +575,8 @@
                                         pSelf.divert(pEnemy);
                                     }
                                 } 
-                                // Rule 3: Sideswipe / T-Bone (The gap between -0.5 and 0.5)
+                                // Rule 3: Sideswipe (-0.5 to 0.5)
                                 else {
-                                    // 70-110 deg logic: Speed dominance
                                     if (speedEnemySq > speedSelfSq) {
                                         pSelf.kill();
                                         break;
@@ -592,7 +606,7 @@
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v15_clean_ui' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v16_no_borders' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -643,6 +657,7 @@
 
         function updateTargetLocal(clientX, clientY) {
             lastInputTime = Date.now(); 
+            hasInteracted = true; // Activate swarm control
             const offsetX = (displayWidth - LOGICAL_SIZE * scale) / 2;
             const offsetY = (displayHeight - LOGICAL_SIZE * scale) / 2;
             let tx = (clientX - offsetX) / scale;
