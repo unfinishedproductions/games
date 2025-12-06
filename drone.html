@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Pixel Swarm (Duel Mode)</title>
+    <title>P2P Pixel Swarm (Fluid Duel)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     
@@ -57,6 +57,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -69,14 +70,19 @@
 
     <script type="module">
         // --- CONFIGURATION ---
-        const LOGICAL_SIZE = 1000; 
+        // Reduced logical size = Zoomed in camera
+        const LOGICAL_SIZE = 600; 
+        
         const NUM_PARTICLES = 400; 
-        const PARTICLE_SIZE = 3; 
+        
+        // Increased size for visibility
+        const PARTICLE_SIZE = 4.5; 
+        
         const MAX_SPEED = 1.8; 
         const MAX_FORCE = 0.05; 
 
-        // Physics
-        const PERCEPTION_RADIUS = 50; 
+        // Physics - Adjusted for the zoomed-in scale
+        const PERCEPTION_RADIUS = 45; 
         const SEPARATION_DISTANCE = 25; 
         const SEPARATION_FACTOR = 1.2; 
         const ALIGNMENT_FACTOR = 0.6;  
@@ -121,6 +127,7 @@
                 return this;
             }
             set(x, y) { this.x = x; this.y = y; return this; }
+            copy() { return new Vector(this.x, this.y); }
         }
 
         class Particle {
@@ -129,15 +136,12 @@
                 this.velocity = new Vector(rng() * 0.4 - 0.2, rng() * 0.4 - 0.2);
                 this.acceleration = new Vector(0, 0);
                 
-                this._steer = new Vector(0,0);
-                this._desired = new Vector(0,0);
-                
                 // Interpolation Target
                 this.serverPos = new Vector(x, y);
                 this.colliding = false; 
                 this.dead = false; 
                 
-                // NEW: Explosion State
+                // Explosion State
                 this.isDying = false; 
                 this.expansion = 1.0;
             }
@@ -152,30 +156,48 @@
             }
 
             kill() {
-                // If already dead or dying, ignore
                 if (this.dead || this.isDying) return;
-
                 this.isDying = true;
-                this.velocity.mult(0.2); // Slow down drift while exploding
+                this.velocity.mult(0.2); 
             }
 
             applyForce(force) {
                 this.acceleration.add(force);
             }
 
-            applySteerBehavior(targetX, targetY, factor) {
-                this._desired.set(targetX, targetY);
-                this._desired.sub(this.position);
-                this._desired.setMag(MAX_SPEED);
-                this._steer.set(this._desired.x, this._desired.y);
-                this._steer.sub(this.velocity);
-                this._steer.limit(MAX_FORCE * factor);
-                this.applyForce(this._steer);
+            // REYNOLDS STEERING: Desired - Velocity
+            steerTo(targetX, targetY, factor) {
+                let desiredX = targetX - this.position.x;
+                let desiredY = targetY - this.position.y;
+                
+                // Normalize and set to max speed
+                const dMag = Math.sqrt(desiredX*desiredX + desiredY*desiredY);
+                if (dMag > 0) {
+                    desiredX = (desiredX / dMag) * MAX_SPEED;
+                    desiredY = (desiredY / dMag) * MAX_SPEED;
+                }
+
+                // Steering = Desired - Velocity
+                let steerX = desiredX - this.velocity.x;
+                let steerY = desiredY - this.velocity.y;
+
+                // Limit force
+                const steerMagSq = steerX*steerX + steerY*steerY;
+                const maxForceSq = (MAX_FORCE * factor) ** 2;
+                
+                if (steerMagSq > maxForceSq) {
+                    const mul = (MAX_FORCE * factor) / Math.sqrt(steerMagSq);
+                    steerX *= mul;
+                    steerY *= mul;
+                }
+                
+                this.acceleration.x += steerX;
+                this.acceleration.y += steerY;
             }
 
-            // PHYSICS LOGIC
+            // NEW PHYSICS LOGIC (Merged from your preferred sim)
             applyBehaviors(particles, target) {
-                if (this.dead || this.isDying) return; // Dying particles stop thinking
+                if (this.dead || this.isDying) return;
 
                 let sepX = 0, sepY = 0, countSep = 0;
                 let aliX = 0, aliY = 0;
@@ -183,22 +205,27 @@
                 const px = this.position.x;
                 const py = this.position.y;
 
+                // Single loop for performance, but using updated math
                 for (let i = 0; i < particles.length; i++) {
                     const other = particles[i];
-                    // Ignore dead OR dying neighbors
-                    if (other === this || other.dead || other.isDying) continue; 
+                    if (other === this || other.dead || other.isDying) continue;
 
                     const dx = px - other.position.x;
                     const dy = py - other.position.y;
                     const dSq = dx*dx + dy*dy;
 
                     if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
+                        const dist = Math.sqrt(dSq);
+                        
+                        // 1. Separation with Inverse Square Law (Stronger repulsion when close)
                         if (dSq < SEPARATION_DISTANCE_SQ) {
-                            const dist = Math.sqrt(dSq);
+                            // Weight by distance (closer = bigger force)
                             sepX += (dx / dist) / dist; 
                             sepY += (dy / dist) / dist;
                             countSep++;
                         }
+
+                        // 2. Alignment & Cohesion Accumulation
                         aliX += other.velocity.x;
                         aliY += other.velocity.y;
                         cohX += other.position.x;
@@ -207,60 +234,67 @@
                     }
                 }
 
+                // Apply Separation (Steering)
                 if (countSep > 0) {
                     sepX /= countSep; sepY /= countSep;
-                    const sepMag = Math.sqrt(sepX*sepX + sepY*sepY);
-                    if (sepMag > 0) {
-                        sepX = (sepX / sepMag) * MAX_SPEED;
-                        sepY = (sepY / sepMag) * MAX_SPEED;
+                    // Normalize to max speed
+                    const mag = Math.sqrt(sepX*sepX + sepY*sepY);
+                    if (mag > 0) {
+                        sepX = (sepX/mag) * MAX_SPEED;
+                        sepY = (sepY/mag) * MAX_SPEED;
                     }
-                    let steerX = sepX - this.velocity.x;
-                    let steerY = sepY - this.velocity.y;
-                    const steerSq = steerX*steerX + steerY*steerY;
-                    const limitSq = (MAX_FORCE * SEPARATION_FACTOR) ** 2;
-                    if (steerSq > limitSq) {
-                        const mult = (MAX_FORCE * SEPARATION_FACTOR) / Math.sqrt(steerSq);
-                        steerX *= mult;
-                        steerY *= mult;
+                    // Implement Steering: (Desired - Velocity) limited by Force
+                    let sX = sepX - this.velocity.x;
+                    let sY = sepY - this.velocity.y;
+                    const sMagSq = sX*sX + sY*sY;
+                    const limSq = (MAX_FORCE * SEPARATION_FACTOR) ** 2;
+                    if (sMagSq > limSq) {
+                        const m = (MAX_FORCE * SEPARATION_FACTOR) / Math.sqrt(sMagSq);
+                        sX *= m; sY *= m;
                     }
-                    this.acceleration.x += steerX;
-                    this.acceleration.y += steerY;
+                    this.acceleration.x += sX;
+                    this.acceleration.y += sY;
                 }
 
+                // Apply Alignment (Steering)
                 if (countCoh > 0) {
                     aliX /= countCoh; aliY /= countCoh;
-                    const aliMag = Math.sqrt(aliX*aliX + aliY*aliY);
-                    if (aliMag > 0) {
-                        aliX = (aliX / aliMag) * MAX_SPEED;
-                        aliY = (aliY / aliMag) * MAX_SPEED;
+                    const mag = Math.sqrt(aliX*aliX + aliY*aliY);
+                    if (mag > 0) {
+                        aliX = (aliX/mag) * MAX_SPEED;
+                        aliY = (aliY/mag) * MAX_SPEED;
                     }
-                    let aliSteerX = aliX - this.velocity.x;
-                    let aliSteerY = aliY - this.velocity.y;
-                    const aliLimitSq = (MAX_FORCE * ALIGNMENT_FACTOR) ** 2;
-                    if ((aliSteerX*aliSteerX + aliSteerY*aliSteerY) > aliLimitSq) {
-                        const mult = (MAX_FORCE * ALIGNMENT_FACTOR) / Math.sqrt(aliSteerX*aliSteerX + aliSteerY*aliSteerY);
-                        aliSteerX *= mult;
-                        aliSteerY *= mult;
+                    let sX = aliX - this.velocity.x;
+                    let sY = aliY - this.velocity.y;
+                    const sMagSq = sX*sX + sY*sY;
+                    const limSq = (MAX_FORCE * ALIGNMENT_FACTOR) ** 2;
+                    if (sMagSq > limSq) {
+                        const m = (MAX_FORCE * ALIGNMENT_FACTOR) / Math.sqrt(sMagSq);
+                        sX *= m; sY *= m;
                     }
-                    this.acceleration.x += aliSteerX;
-                    this.acceleration.y += aliSteerY;
+                    this.acceleration.x += sX;
+                    this.acceleration.y += sY;
 
+                    // Apply Cohesion (Steering) with DYNAMIC FACTOR
                     cohX /= countCoh; cohY /= countCoh;
+                    
                     let dynamicFactor = COHESION_FACTOR;
-                    if (countCoh > DENSITY_HIGH_THRESHOLD) dynamicFactor *= 0.5;
-                    else if (countCoh <= DENSITY_LOW_THRESHOLD) dynamicFactor *= 1.3;
-                    this.applySteerBehavior(cohX, cohY, dynamicFactor);
+                    // Dynamic breathing logic from your preferred sim
+                    if (countCoh > DENSITY_HIGH_THRESHOLD) dynamicFactor *= 0.7; // Crowd? Spread out
+                    else if (countCoh <= DENSITY_LOW_THRESHOLD) dynamicFactor *= 1.3; // Lonely? Group up
+
+                    this.steerTo(cohX, cohY, dynamicFactor);
                 }
 
+                // Apply Target Seeking (Steering)
                 const dResX = target.x - px;
                 const dResY = target.y - py;
                 if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
-                    this.applySteerBehavior(target.x, target.y, TARGET_SEEK_FACTOR);
+                    this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
                 }
             }
 
             update() {
-                // Dying particles still drift slightly (looks better)
                 if (this.dead) return; 
                 this.velocity.add(this.acceleration);
                 this.velocity.limit(MAX_SPEED);
@@ -273,9 +307,8 @@
                 // If server sends to graveyard, trigger local explosion
                 if (this.serverPos.x < -5000) {
                     if (!this.dead && !this.isDying) {
-                        this.kill(); // Trigger the animation
+                        this.kill(); 
                     }
-                    // If we are already dead/dying, let draw() handle the rest
                     return;
                 } 
 
@@ -306,32 +339,26 @@
             draw(ctx, color) {
                 if (this.dead) return;
 
-                // --- NEW EXPLOSION LOGIC ---
+                // --- EXPLOSION ANIMATION ---
                 if (this.isDying) {
-                    this.expansion += 0.2; // How fast it grows per frame
-                    
-                    // Center the growing square
+                    this.expansion += 0.2; 
                     const size = PARTICLE_SIZE * this.expansion;
                     const offset = (size - PARTICLE_SIZE) / 2;
-                    
-                    ctx.fillStyle = '#ff0000'; // Always Red when dying
+                    ctx.fillStyle = '#ff0000'; 
                     ctx.fillRect(this.position.x - offset, this.position.y - offset, size, size);
 
-                    // Once 3x size, actually delete (send to graveyard)
                     if (this.expansion >= 3.0) {
                         this.dead = true;
                         this.position.set(-9999, -9999);
-                        this.serverPos.set(-9999, -9999); // Ensure local state matches
+                        this.serverPos.set(-9999, -9999); 
                     }
                     return;
                 }
-                // ---------------------------
-
+                
                 ctx.fillStyle = this.colliding ? '#ff0000' : color;
                 ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
             }
         }
-        
 
         // --- ENGINE ---
         const canvas = document.getElementById('swarmCanvas');
@@ -340,7 +367,6 @@
         let displayWidth, displayHeight;
         let scale = 1;
         
-        // Two Swarms (Fixed Size Arrays)
         let particlesHost = []; 
         let particlesViewer = []; 
         
@@ -364,7 +390,6 @@
 
         function initSimulation() {
             resize();
-            // Create fixed size arrays once
             if (particlesHost.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
@@ -380,7 +405,6 @@
         }
 
         function animate() {
-            // Background
             ctx.fillStyle = '#f0f0f0';
             ctx.fillRect(0, 0, displayWidth, displayHeight);
 
@@ -431,45 +455,40 @@
                 }
             }
 
-            // 2. COLLISION DETECTION (No Splicing, just hiding)
+            // 2. COLLISION DETECTION
             if (isFighting) {
-                
-                // HOST Checks Host Deaths
                 if (role === 'HOST') {
                     for (let i = 0; i < NUM_PARTICLES; i++) {
                         const pH = particlesHost[i];
-                        if (pH.dead) continue; // Skip if already dead
+                        if (pH.dead || pH.isDying) continue; 
 
                         for (let j = 0; j < NUM_PARTICLES; j++) {
                             const pV = particlesViewer[j];
-                            if (pV.dead) continue; // Skip if ghost
+                            if (pV.dead || pV.isDying) continue; 
 
                             const dx = pH.position.x - pV.position.x;
                             const dy = pH.position.y - pV.position.y;
                             
                             if (dx*dx + dy*dy < COLLISION_SQ) {
                                 pH.colliding = true;
-                                pV.colliding = true; // Visual flash
-                                
-                                // If I am slower, I die (move to graveyard)
+                                pV.colliding = true; 
                                 if (pH.velocity.magSq() < pV.velocity.magSq()) {
                                     pH.kill(); 
-                                    break; // Dead particles stop checking
+                                    break; 
                                 }
                             }
                         }
                     }
                 }
 
-                // VIEWER Checks Viewer Deaths
                 if (role === 'VIEWER') {
                     for (let i = 0; i < NUM_PARTICLES; i++) {
                         const pV = particlesViewer[i];
-                        if (pV.dead) continue;
+                        if (pV.dead || pV.isDying) continue;
 
                         for (let j = 0; j < NUM_PARTICLES; j++) {
                             const pH = particlesHost[j];
-                            if (pH.dead) continue;
+                            if (pH.dead || pH.isDying) continue;
 
                             const dx = pV.position.x - pH.position.x;
                             const dy = pV.position.y - pH.position.y;
@@ -477,8 +496,6 @@
                             if (dx*dx + dy*dy < COLLISION_SQ) {
                                 pV.colliding = true;
                                 pH.colliding = true;
-                                
-                                // If I am slower, I die
                                 if (pV.velocity.magSq() < pH.velocity.magSq()) {
                                     pV.kill();
                                     break;
@@ -509,7 +526,7 @@
         const TRANSMISSION_RATE = 15; 
 
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v5_ghost' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v6_fluid' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -520,16 +537,13 @@
             room.onPeerJoin(() => { peers++; updateStatus(); });
             room.onPeerLeave(() => { peers--; updateStatus(); });
 
-            // Standard sync - no array resizing needed
             function syncParticles(targetArray, data) {
                 if (!Array.isArray(data) || data.length < 2) return;
                 
-                // Target Position
                 if (targetArray === particlesHost) { targetHost.x = data[0]; targetHost.y = data[1]; }
                 else { targetViewer.x = data[0]; targetViewer.y = data[1]; }
 
                 let pIndex = 0;
-                // data format: [tx, ty, x0, y0, x1, y1...]
                 for (let i = 2; i < data.length; i += 2) {
                     if (pIndex < targetArray.length) {
                         const p = targetArray[pIndex];
@@ -548,9 +562,7 @@
                 if (role === 'HOST' && isFighting) syncParticles(particlesViewer, data);
             });
 
-            // FIGHT NEGOTIATION
             const fightBtn = document.getElementById('fight-btn');
-            
             fightBtn.onclick = () => {
                 if (role === 'VIEWER') {
                     sendFightReq('FIGHT ME');
@@ -564,7 +576,6 @@
                     if (confirm("Peer requesting DUEL. Accept?")) {
                         isFighting = true;
                         sendFightAns(true);
-                        // Respawn Viewer particles for a fair fight
                         for(let p of particlesViewer) p.respawn(rng()*LOGICAL_SIZE, rng()*LOGICAL_SIZE);
                     } else {
                         sendFightAns(false);
@@ -577,7 +588,6 @@
                     if (accepted) {
                         isFighting = true;
                         fightBtn.style.display = 'none';
-                        // Respawn My particles
                         for(let p of particlesViewer) p.respawn(rng()*LOGICAL_SIZE, rng()*LOGICAL_SIZE);
                     } else {
                         fightBtn.innerText = "FIGHT";
@@ -587,7 +597,6 @@
                 }
             });
 
-            // HEARTBEAT
             getHeartbeat((data) => {
                 lastHeartbeat = Date.now();
                 const remoteHostId = data; 
@@ -605,13 +614,11 @@
                 }
             });
 
-            // BROADCAST LOOP
             const transmissionInterval = 1000 / TRANSMISSION_RATE;
 
             setInterval(() => {
                 const now = Date.now();
 
-                // Host takeover
                 if (role !== 'HOST' && (now - lastHeartbeat > 2000)) {
                     role = 'HOST';
                     isFighting = false; 
@@ -623,7 +630,6 @@
                     
                     const payload = [Math.round(targetHost.x), Math.round(targetHost.y)];
                     for (let p of particlesHost) {
-                        // If dead, we send the graveyard coordinates. The other peer will hide it.
                         payload.push(Math.round(p.position.x), Math.round(p.position.y));
                     }
                     sendSwarmData(payload);
@@ -655,9 +661,10 @@
             }
         }
 
-        window.addEventListener('mousemove', e => updateTargetLocal(e.clientX, e.clientY));
-canvas.addEventListener('touchmove', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-canvas.addEventListener('touchstart', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+        // CORRECTED TOUCH LISTENERS
+        canvas.addEventListener('mousemove', e => updateTargetLocal(e.clientX, e.clientY));
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); updateTargetLocal(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
         window.addEventListener('resize', resize);
 
         function updateStatus() {
