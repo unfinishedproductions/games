@@ -57,7 +57,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">DRONES</h1>
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">DRONE</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -269,12 +269,36 @@
                     this.position.set(-9999, -9999);
                     return;
                 } else {
-                    this.dead = false; // Just in case of respawn
+                    this.dead = false; 
                 }
 
-                const lerpFactor = 0.2; 
-                this.position.x += (this.serverPos.x - this.position.x) * lerpFactor;
-                this.position.y += (this.serverPos.y - this.position.y) * lerpFactor;
+                // 1. TUNE THIS: Higher = Snappier/Jittery, Lower = Smooth/Molasses
+                const lerpFactor = 0.35; 
+
+                // Calculate the distance to where the server says we should be
+                const dx = this.serverPos.x - this.position.x;
+                const dy = this.serverPos.y - this.position.y;
+                
+                // Anti-Jerk: If distance is massive (teleport), snap instantly
+                if (dx*dx + dy*dy > 2500) { 
+                    this.position.x = this.serverPos.x;
+                    this.position.y = this.serverPos.y;
+                    this.velocity.set(0,0); // Teleporting has no 'speed' for combat
+                } else {
+                    // 2. THE FIX: Update Velocity based on how much we are about to move
+                    // This ensures the "Faster kills Slower" logic works for enemy drones too
+                    const moveX = dx * lerpFactor;
+                    const moveY = dy * lerpFactor;
+                    
+                    this.velocity.set(moveX, moveY);
+                    
+                    // Cap the calculated velocity so lagging drones don't become "Super Killers"
+                    // because they are trying to catch up too fast
+                    this.velocity.limit(MAX_SPEED);
+
+                    this.position.x += moveX;
+                    this.position.y += moveY;
+                }
             }
 
             draw(ctx, color) {
