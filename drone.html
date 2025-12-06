@@ -89,7 +89,6 @@
         const ALIGNMENT_FACTOR = 0.6;  
         const COHESION_FACTOR = 0.45;
         const TARGET_SEEK_FACTOR = 0.5; 
-        // New Factor for Enemy Avoidance (using same math scale as Separation to prevent jitter)
         const ENEMY_AVOID_FACTOR = 1.5; 
 
         // Optimization
@@ -167,11 +166,9 @@
                 this.velocity.mult(0.2); 
             }
 
-            // Simple bounce force for non-lethal collisions
             divert(other) {
                 let bounce = new Vector(this.position.x - other.position.x, this.position.y - other.position.y);
                 bounce.normalize().mult(MAX_SPEED);
-                // Apply directly to accel using existing force limits implicitly by design
                 this.applyForce(bounce);
             }
 
@@ -179,7 +176,6 @@
                 this.acceleration.add(force);
             }
 
-            // ORIGINAL steerTo logic to prevent jitter
             steerTo(targetX, targetY, factor) {
                 let desiredX = targetX - this.position.x;
                 let desiredY = targetY - this.position.y;
@@ -201,7 +197,6 @@
                 this.acceleration.y += steerY;
             }
 
-            // Modified to accept 'enemies' and 'active' state, but keeps original math structure
             applyBehaviors(particles, target, enemies, bothActive) {
                 if (this.dead || this.isDying) return;
 
@@ -211,7 +206,6 @@
                 const px = this.position.x;
                 const py = this.position.y;
 
-                // 1. FRIENDS (Standard Flocking)
                 for (let i = 0; i < particles.length; i++) {
                     const other = particles[i];
                     if (other === this || other.dead || other.isDying) continue;
@@ -235,8 +229,6 @@
                     }
                 }
 
-                // 2. ENEMIES (Only Separation/Avoidance when NOT fighting)
-                // If we are idle (!bothActive), we avoid enemies.
                 if (!bothActive && enemies) {
                     let avoX = 0, avoY = 0, countAvo = 0;
                     for (let i = 0; i < enemies.length; i++) {
@@ -245,7 +237,6 @@
                         const dx = px - other.position.x;
                         const dy = py - other.position.y;
                         const dSq = dx*dx + dy*dy;
-                        // Use same radius as perception
                         if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
                             const dist = Math.sqrt(dSq);
                             avoX += (dx / dist) / dist; 
@@ -253,7 +244,6 @@
                             countAvo++;
                         }
                     }
-                    // Apply Enemy Avoidance using exact same math as Separation to ensure smoothness
                     if (countAvo > 0) {
                         avoX /= countAvo; avoY /= countAvo;
                         const mag = Math.sqrt(avoX*avoX + avoY*avoY);
@@ -261,7 +251,6 @@
                         let sX = avoX - this.velocity.x;
                         let sY = avoY - this.velocity.y;
                         const sMagSq = sX*sX + sY*sY;
-                        // Limit force exactly like Separation
                         const limSq = (MAX_FORCE * ENEMY_AVOID_FACTOR) ** 2;
                         if (sMagSq > limSq) {
                             const m = (MAX_FORCE * ENEMY_AVOID_FACTOR) / Math.sqrt(sMagSq);
@@ -272,7 +261,6 @@
                     }
                 }
 
-                // Apply Friends Separation
                 if (countSep > 0) {
                     sepX /= countSep; sepY /= countSep;
                     const mag = Math.sqrt(sepX*sepX + sepY*sepY);
@@ -289,7 +277,6 @@
                     this.acceleration.y += sY;
                 }
 
-                // Apply Friends Alignment & Cohesion
                 if (countCoh > 0) {
                     aliX /= countCoh; aliY /= countCoh;
                     const mag = Math.sqrt(aliX*aliX + aliY*aliY);
@@ -528,7 +515,6 @@
                                 pEnemy.colliding = true; 
 
                                 if (!bothActive) {
-                                    // Idle: Harmless divert
                                     pSelf.divert(pEnemy);
                                 } else {
                                     // Combat Logic
@@ -537,7 +523,6 @@
                                     const v1n = v1.copy().normalize();
                                     const v2n = v2.copy().normalize();
                                     
-                                    // 1.0 = Same Dir, -1.0 = Head On
                                     const dot = v1n.dot(v2n);
 
                                     // Rear-end (> 0.4 approx 66 deg)
@@ -553,15 +538,11 @@
                                     } 
                                     // Sideswipe
                                     else {
-                                        // Vector from Me to Enemy
                                         const colVec = new Vector(pEnemy.position.x - pSelf.position.x, pEnemy.position.y - pSelf.position.y).normalize();
                                         
-                                        // How much am I moving INTO the enemy?
                                         const myImpact = v1n.dot(colVec);
-                                        // How much is Enemy moving INTO me? (Inverse colVec)
                                         const enemyImpact = v2n.dot(colVec.mult(-1));
 
-                                        // Aggressor (one moving more towards the collision line) wins
                                         if (enemyImpact > myImpact) {
                                             pSelf.kill();
                                             break;
@@ -593,7 +574,7 @@
         const TRANSMISSION_RATE = 15; 
 
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_stable' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_final' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -649,7 +630,12 @@
                     if (confirm("Peer requesting DUEL. Accept?")) {
                         isFighting = true;
                         sendFightAns(true);
-                        for(let p of particlesViewer) p.respawn(rng()*LOGICAL_SIZE, rng()*LOGICAL_SIZE);
+                        // Reset Viewer Target to top "Chill Zone"
+                        targetViewer = { x: LOGICAL_SIZE/2, y: 80 };
+                        // Respawn Viewer particles in a cloud at the top
+                        for(let p of particlesViewer) {
+                            p.respawn(LOGICAL_SIZE/2 + (rng() * 400 - 200), rng() * 100 - 50);
+                        }
                     } else {
                         sendFightAns(false);
                     }
@@ -661,7 +647,12 @@
                     if (accepted) {
                         isFighting = true;
                         fightBtn.style.display = 'none';
-                        for(let p of particlesViewer) p.respawn(rng()*LOGICAL_SIZE, rng()*LOGICAL_SIZE);
+                        // Reset Viewer Target to top "Chill Zone"
+                        targetViewer = { x: LOGICAL_SIZE/2, y: 80 };
+                        // Respawn Viewer particles in a cloud at the top
+                        for(let p of particlesViewer) {
+                            p.respawn(LOGICAL_SIZE/2 + (rng() * 400 - 200), rng() * 100 - 50);
+                        }
                     } else {
                         fightBtn.innerText = "FIGHT";
                         fightBtn.disabled = false;
