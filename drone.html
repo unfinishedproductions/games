@@ -62,6 +62,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -336,7 +337,9 @@
                     return;
                 }
 
-                const lerpFactor = 0.35; 
+                // Smooth Interpolation
+                // 0.2 provides a good balance between smoothing jitter and staying responsive
+                const lerpFactor = 0.2; 
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
@@ -348,9 +351,13 @@
                     const moveX = dx * lerpFactor;
                     const moveY = dy * lerpFactor;
                     this.velocity.set(moveX, moveY);
+                    
+                    // CRITICAL: Limit velocity to MAX_SPEED. 
+                    // This prevents "snappy" catch-up movement from creating artificially high velocity
+                    // which would give an unfair advantage in head-on collisions.
                     this.velocity.limit(MAX_SPEED);
-                    this.position.x += moveX;
-                    this.position.y += moveY;
+
+                    this.position.add(this.velocity);
                 }
             }
 
@@ -573,7 +580,7 @@
         const TRANSMISSION_RATE = 15; 
 
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_final' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_fair' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
