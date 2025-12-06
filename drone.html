@@ -62,7 +62,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
-            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Drone</h1>
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm drone</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -161,7 +161,7 @@
             kill() {
                 if (this.dead || this.isDying) return;
                 this.isDying = true;
-                this.velocity.mult(0.2); 
+                this.velocity.mult(0.2); // Slow down significantly upon death trigger
             }
 
             divert(other) {
@@ -195,7 +195,6 @@
                 this.acceleration.y += steerY;
             }
 
-            // Revised applyBehaviors to optionally accept enemies
             applyBehaviors(particles, target, enemies, fighting) {
                 if (this.dead || this.isDying) return;
 
@@ -228,7 +227,7 @@
                     }
                 }
 
-                // If fighting, avoid enemies
+                // Enemy Avoidance (Active when fighting)
                 if (fighting && enemies) {
                     let avoX = 0, avoY = 0, countAvo = 0;
                     for (let i = 0; i < enemies.length; i++) {
@@ -314,24 +313,34 @@
                 this.acceleration.mult(0);
             }
 
-            // Simply lerp to the position received from network
+            // CRITICAL: Used for opponents. Must update velocity for collision math to work.
             updateViewer() {
-                // If the remote particle is dead (offscreen value)
+                // If off-screen/dead logic
                 if (this.serverPos.x < -5000) {
-                    this.dead = true;
-                    this.position.set(-9999, -9999);
+                    if (this.position.x < -5000) {
+                        this.dead = true;
+                        this.isDying = false;
+                        return;
+                    }
+                    // If it was alive but server says dead, kill it (triggers animation)
+                    if (!this.dead && !this.isDying) {
+                        this.kill(); 
+                    }
                     return;
-                }
-                
-                // If it was dead but now alive, respawn
+                } 
+
+                // Respawn Logic
                 if (this.dead || this.isDying) {
                     this.dead = false; 
                     this.isDying = false; 
+                    this.expansion = 1.0;
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
+                    this.velocity.set(0,0);
                     return;
                 }
 
+                // Interpolation
                 const lerpFactor = 0.2; 
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
@@ -339,9 +348,13 @@
                 if (dx*dx + dy*dy > 9000) { 
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
+                    this.velocity.set(0,0); 
                 } else {
-                    this.position.x += dx * lerpFactor;
-                    this.position.y += dy * lerpFactor;
+                    const moveX = dx * lerpFactor;
+                    const moveY = dy * lerpFactor;
+                    this.velocity.set(moveX, moveY); // Update velocity for collision math
+                    this.velocity.limit(MAX_SPEED);
+                    this.position.add(this.velocity);
                 }
             }
 
@@ -373,7 +386,6 @@
         let displayWidth, displayHeight;
         let scale = 1;
         
-        // REFACTORED: particlesHost is MY swarm. particlesViewer is OPPONENT swarm.
         let particlesHost = []; 
         let particlesViewer = []; 
         
@@ -402,13 +414,11 @@
 
         function initSimulation() {
             resize();
-            // Create My Swarm
             if (particlesHost.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     particlesHost.push(new Particle(rng() * LOGICAL_SIZE, rng() * LOGICAL_SIZE));
                 }
             }
-            // Create Enemy Swarm (Hidden initially, acts as buffer for network data)
             if (particlesViewer.length === 0) {
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const p = new Particle(-9999, -9999);
@@ -436,15 +446,18 @@
                 document.getElementById('input-status').classList.remove('input-active');
             }
 
+            // Both must be inputting for kills to happen
+            const bothActive = myInputActive && peerInputActive;
+
             // --- NETWORK TRANSMISSION ---
             if (now - lastTransmissionTime > 66) {
                 lastTransmissionTime = now;
-                if (netSendHeartbeat) netSendHeartbeat(1); // Keep alive
+                if (netSendHeartbeat) netSendHeartbeat(1); 
 
-                // ALWAYS broadcast my data if connected
                 if (peers > 0 && netSendSwarmData) {
                     const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
                     for (let p of particlesHost) {
+                        // Send all particles including dead ones (so array alignment matches)
                         if (!p.dead && !p.isDying) {
                             payload.push(Math.round(p.position.x), Math.round(p.position.y));
                         } else {
@@ -455,7 +468,6 @@
                 }
             }
 
-            // Canvas clear
             ctx.fillStyle = '#f0f0f0';
             ctx.fillRect(0, 0, displayWidth, displayHeight);
 
@@ -479,23 +491,21 @@
                 ctx.fillRect(targetViewer.x - 2, targetViewer.y - 2, 4, 4);
             }
 
-            // 1. UPDATE LOGIC
-            // Update MY particles (Physics)
+            // 1. UPDATE
             for (let p of particlesHost) {
-                // If fighting, avoid ENEMY (particlesViewer). If not, ignore them.
                 p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting);
                 p.update();
                 p.colliding = false;
             }
 
-            // Update ENEMY particles (Network Sync)
             for (let p of particlesViewer) {
                 p.updateViewer(); 
                 p.colliding = false;
             }
 
-            // 2. COLLISION (Only if fighting)
+            // 2. COLLISION (Restored Original Logic)
             if (isFighting) {
+                // p1List = particlesHost, p2List = particlesViewer
                 for (let i = 0; i < NUM_PARTICLES; i++) {
                     const pSelf = particlesHost[i];
                     if (pSelf.dead || pSelf.isDying) continue; 
@@ -513,29 +523,50 @@
                             pSelf.colliding = true;
                             pEnemy.colliding = true; 
 
-                            // Combat Math
-                            // Note: We only calculate consequences for OUR swarm. 
-                            // The opponent calculates consequences for THEIR swarm on their device.
-                            
-                            const v1 = pSelf.velocity.copy();
-                            // We approximate enemy velocity from previous frame or just use normalized vector
-                            // Since pEnemy is lerping, its velocity prop might be 0. Let's infer direction.
-                            // Simplified: Just use bounce/divert logic.
-                            pSelf.divert(pEnemy);
+                            if (!bothActive) {
+                                // Passive bounce if someone is idle
+                                pSelf.divert(pEnemy);
+                            } else {
+                                // ACTIVE COMBAT LOGIC
+                                const v1 = pSelf.velocity.copy();
+                                const v2 = pEnemy.velocity.copy();
+                                const v1n = v1.copy().normalize();
+                                const v2n = v2.copy().normalize();
+                                
+                                const dot = v1n.dot(v2n);
 
-                            // Optional: Death logic (Head on collisions)
-                            // This creates a shared hallucination of death, but works well enough for P2P games
-                            // without authoritative server.
+                                // Rear-end (> 0.4 approx 66 deg) -> Bump
+                                if (dot > 0.4) {
+                                    pSelf.divert(pEnemy); 
+                                } 
+                                // Head-on (< -0.8 approx 143 deg) -> Speed check
+                                else if (dot < -0.8) {
+                                    if (pSelf.velocity.magSq() < pEnemy.velocity.magSq()) {
+                                        pSelf.kill();
+                                        break; // Dead, stop checking collisions for this particle
+                                    }
+                                } 
+                                // Sideswipe -> Angle of Impact check
+                                else {
+                                    const colVec = new Vector(pEnemy.position.x - pSelf.position.x, pEnemy.position.y - pSelf.position.y).normalize();
+                                    
+                                    const myImpact = v1n.dot(colVec);
+                                    const enemyImpact = v2n.dot(colVec.mult(-1));
+
+                                    if (enemyImpact > myImpact) {
+                                        pSelf.kill();
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
             // 3. DRAW
-            // Draw Mine (Black)
             for (let p of particlesHost) p.draw(ctx, '#000000');
             
-            // Draw Enemy (Grey if waiting, Blue if fighting)
             if (peers > 0) {
                 const enemyColor = isFighting ? '#0000ff' : '#cccccc';
                 for (let p of particlesViewer) p.draw(ctx, enemyColor);
@@ -549,7 +580,7 @@
 
         // --- NETWORK ---
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v10_flip' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v11_restored_phys' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -568,7 +599,6 @@
                 peerInputActive = (data[0] === 1);
 
                 // FLIP COORDINATES (The "Across the table" effect)
-                // Invert X and Y relative to Logical Size
                 targetViewer.x = LOGICAL_SIZE - data[1];
                 targetViewer.y = LOGICAL_SIZE - data[2];
 
@@ -579,12 +609,10 @@
                         const rx = data[i];
                         const ry = data[i+1];
                         
-                        // Handle dead markers
                         if (rx < -5000) {
                             p.serverPos.x = -9999;
                             p.serverPos.y = -9999;
                         } else {
-                            // Invert Particle Coordinates
                             p.serverPos.x = LOGICAL_SIZE - rx;
                             p.serverPos.y = LOGICAL_SIZE - ry;
                         }
@@ -593,7 +621,6 @@
                 }
             });
 
-            // Fight Signal Logic
             const fightBtn = document.getElementById('fight-btn');
             fightBtn.onclick = () => {
                 if (peers > 0) {
@@ -608,9 +635,7 @@
                 updateStatus();
             });
 
-            getHeartbeat((data) => {
-                // Just used to keep connection alive, removed role negotiation
-            });
+            getHeartbeat((data) => {});
         }
 
         function updateTargetLocal(clientX, clientY) {
