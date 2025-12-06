@@ -62,6 +62,7 @@
 
     <div id="ui-layer">
         <div class="status-box">
+            <h1 class="text-xl uppercase border-b-2 border-black mb-1">Swarm Sync</h1>
             <p>STATUS: <span id="status-text" class="text-gray-500">INITIALIZING...</span></p>
             <p>PEERS: <span id="peer-count">0</span></p>
             <p>ALIVE: <span id="drone-count">0</span></p>
@@ -314,6 +315,7 @@
             }
 
             updateViewer() {
+                // Handle death/respawn from server data
                 if (this.serverPos.x < -5000) {
                     if (this.position.x < -5000) {
                         this.dead = true;
@@ -340,7 +342,9 @@
                 const dx = this.serverPos.x - this.position.x;
                 const dy = this.serverPos.y - this.position.y;
                 
-                if (dx*dx + dy*dy > 2500) { 
+                // FIXED: Increased threshold from 2500 to 9000. 
+                // This prevents snapping when mobile hosts send data with slight irregularity.
+                if (dx*dx + dy*dy > 9000) { 
                     this.position.x = this.serverPos.x;
                     this.position.y = this.serverPos.y;
                     this.velocity.set(0,0); 
@@ -398,6 +402,11 @@
         let myInputActive = false;
         let peerInputActive = false;
 
+        // NETWORK STATE
+        // We moved network actions here to access them in animate()
+        let netSendHeartbeat, netSendSwarmData, netSendSwarmData2;
+        let lastTransmissionTime = 0;
+
         function resize() {
             displayWidth = window.innerWidth;
             displayHeight = window.innerHeight;
@@ -433,6 +442,44 @@
             } else {
                 myInputActive = false;
                 document.getElementById('input-status').classList.remove('input-active');
+            }
+
+            // --- NETWORK TRANSMISSION LOOP (MOVED INSIDE ANIMATE FOR MOBILE STABILITY) ---
+            // 15 FPS = 66ms interval
+            if (now - lastTransmissionTime > 66) {
+                lastTransmissionTime = now;
+
+                if (role !== 'HOST' && (now - lastHeartbeat > 15000)) {
+                    role = 'HOST';
+                    isFighting = false; 
+                    updateStatus();
+                }
+
+                if (role === 'HOST' && netSendSwarmData) {
+                    netSendHeartbeat(myHostId); 
+                    const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
+                    // Send ALL particles (even dead ones) to ensure array index consistency
+                    for (let p of particlesHost) {
+                        if (!p.dead && !p.isDying) {
+                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        } else {
+                            payload.push(-9999, -9999);
+                        }
+                    }
+                    netSendSwarmData(payload);
+                }
+                
+                if (role === 'VIEWER' && isFighting && netSendSwarmData2) {
+                    const payload = [myInputActive ? 1 : 0, Math.round(targetViewer.x), Math.round(targetViewer.y)];
+                    for (let p of particlesViewer) {
+                        if (!p.dead && !p.isDying) {
+                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
+                        } else {
+                            payload.push(-9999, -9999);
+                        }
+                    }
+                    netSendSwarmData2(payload);
+                }
             }
 
             // Determine if valid fight
@@ -506,11 +553,10 @@
                             if (pEnemy.dead || pEnemy.isDying) continue; 
 
                             const dx = pSelf.position.x - pEnemy.position.x;
-                            // Pre-check for mobile performance optimization
-                            if (Math.abs(dx) > 10) continue; // Skip if X distance is large
+                            if (Math.abs(dx) > 10) continue; 
 
                             const dy = pSelf.position.y - pEnemy.position.y;
-                            if (Math.abs(dy) > 10) continue; // Skip if Y distance is large
+                            if (Math.abs(dy) > 10) continue; 
                             
                             if (dx*dx + dy*dy < COLLISION_SQ) {
                                 pSelf.colliding = true;
@@ -573,16 +619,19 @@
         }
 
         // --- NETWORK ---
-        const TRANSMISSION_RATE = 15; 
-
         function setupNetwork() {
-            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v8_mobilefix' }, 'swarm_room_main');
+            const room = window.joinRoom({ appId: 'pixel_swarm_sim_v9_optimized' }, 'swarm_room_main');
             
             const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
             const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
             const [sendSwarmData2, getSwarmData2] = room.makeAction('sd2'); 
             const [sendFightReq, getFightReq] = room.makeAction('reqFight');
             const [sendFightAns, getFightAns] = room.makeAction('ansFight');
+
+            // Assign to globals so animate() can use them
+            netSendHeartbeat = sendHeartbeat;
+            netSendSwarmData = sendSwarmData;
+            netSendSwarmData2 = sendSwarmData2;
 
             room.onPeerJoin(() => { peers++; updateStatus(); });
             room.onPeerLeave(() => { peers--; updateStatus(); });
@@ -605,9 +654,8 @@
                     pIndex++;
                 }
                 
-                for (let i = pIndex; i < targetArray.length; i++) {
-                    targetArray[i].hide();
-                }
+                // IMPORTANT: Since we send -9999 for dead ones, logic is handled in updateViewer
+                // No need to explicitly hide tail here as we send full list.
             }
 
             getSwarmData((data) => {
@@ -629,8 +677,6 @@
 
             getFightReq((data, peerId) => {
                 if (role === 'HOST' && !isFighting) {
-                    // ALERT: confirm() blocks JS thread! 
-                    // We increased timeout to 15000ms to handle this delay.
                     if (confirm("Peer requesting DUEL. Accept?")) {
                         isFighting = true;
                         sendFightAns(true);
@@ -678,40 +724,7 @@
                 }
             });
 
-            const transmissionInterval = 1000 / TRANSMISSION_RATE;
-
-            setInterval(() => {
-                const now = Date.now();
-
-                // TIMEOUT FIX: Increased from 2000 to 15000 to allow time for confirm() dialog
-                if (role !== 'HOST' && (now - lastHeartbeat > 15000)) {
-                    role = 'HOST';
-                    isFighting = false; 
-                    updateStatus();
-                }
-
-                if (role === 'HOST') {
-                    sendHeartbeat(myHostId); 
-                    const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
-                    for (let p of particlesHost) {
-                        if (!p.dead && !p.isDying) {
-                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
-                        }
-                    }
-                    sendSwarmData(payload);
-                }
-                
-                if (role === 'VIEWER' && isFighting) {
-                    const payload = [myInputActive ? 1 : 0, Math.round(targetViewer.x), Math.round(targetViewer.y)];
-                    for (let p of particlesViewer) {
-                        if (!p.dead && !p.isDying) {
-                            payload.push(Math.round(p.position.x), Math.round(p.position.y));
-                        }
-                    }
-                    sendSwarmData2(payload);
-                }
-
-            }, transmissionInterval); 
+            // Note: setInterval is removed here. Transmission logic is now in animate()
         }
 
         function updateTargetLocal(clientX, clientY) {
