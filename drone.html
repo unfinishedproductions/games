@@ -3,32 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Drone</title>
+    <title>Drone Swarm - Osmosis Logic</title>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- FIX: WebRTC Cleanup Script (Hybrid Solution) -->
     <script>
         (function() {
-            // 1. A. Wolff's "Memory Pressure" Hack
-            // We expose this so the game can call it when peers leave
+            // Garbage Collection Trigger for Peer cleanup
             window.triggerGC = function() {
-                // Source: https://stackoverflow.com/a/66546935 (A. Wolff)
                 queueMicrotask(() => { 
                     try {
                         let img = document.createElement("img");
-                        // Create a 50MB buffer to force the browser to wake up the Garbage Collector
                         img.src = window.URL.createObjectURL(new Blob([new ArrayBuffer(5e+7)])); 
                         img.onerror = function() {
                             window.URL.revokeObjectURL(this.src);
                             img = null;
                         }
-                    } catch(e) {
-                        console.log("GC Trigger skipped (memory likely full)");
-                    }
+                    } catch(e) {}
                 });
             };
 
-            // 2. Connection Tracking Wrapper
+            // Connection Tracking Wrapper
             const OriginalRTCPeerConnection = window.RTCPeerConnection;
             const activeConnections = new Set();
 
@@ -48,7 +42,6 @@
                 window.RTCPeerConnection[prop] = OriginalRTCPeerConnection[prop];
             });
 
-            // Cleanup on tab close
             window.addEventListener('beforeunload', () => {
                 activeConnections.forEach(pc => pc.close());
                 activeConnections.clear();
@@ -186,6 +179,11 @@
             this.dead = false; 
             this.isDying = false; 
             this.expansion = 1.0;
+            
+            // --- NEW PROPERTY: CONVERSION ---
+            // 0.0 = Fully Friendly (Black)
+            // 1.0 = Fully Converted/Eaten (Blue)
+            this.conversion = 0.0;
         }
 
         respawn(x, y) {
@@ -196,6 +194,7 @@
             this.dead = false;
             this.isDying = false;
             this.expansion = 1.0;
+            this.conversion = 0.0;
         }
 
         hide() {
@@ -248,6 +247,12 @@
             let sepX = 0, sepY = 0, countSep = 0;
             let aliX = 0, aliY = 0;
             let cohX = 0, cohY = 0, countCoh = 0;
+            
+            // --- OSMOSIS VARIABLES ---
+            let maxFriendConversion = 0; // The most "infected" neighbor found
+            let friendNeighbors = 0;
+            // -------------------------
+
             const px = this.position.x;
             const py = this.position.y;
 
@@ -261,6 +266,8 @@
 
                 if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
                     const dist = Math.sqrt(dSq);
+                    
+                    // Separation / Cohesion / Alignment
                     if (dSq < SEPARATION_DISTANCE_SQ) {
                         sepX += (dx / dist) / dist; 
                         sepY += (dy / dist) / dist;
@@ -271,8 +278,18 @@
                     cohX += other.position.x;
                     cohY += other.position.y;
                     countCoh++;
+
+                    // --- OSMOSIS CHECK ---
+                    // If my neighbor is converting, I should too (spreads the "bubble" effect)
+                    if (other.conversion > maxFriendConversion) {
+                        maxFriendConversion = other.conversion;
+                    }
+                    friendNeighbors++;
+                    // ---------------------
                 }
             }
+
+            let enemyPressure = 0; // How many enemies are close?
 
             if (fighting && enemies && !bothActive) {
                 let avoX = 0, avoY = 0, countAvo = 0;
@@ -287,8 +304,40 @@
                         avoX += (dx / dist) / dist; 
                         avoY += (dy / dist) / dist;
                         countAvo++;
+
+                        // --- DIRECT PRESSURE ---
+                        // If enemy is very close, pressure increases
+                        if (dSq < 900) { // 30px radius
+                            enemyPressure++;
+                        }
+                        // -----------------------
                     }
                 }
+                
+                // --- CONVERSION LOGIC (THE FIX) ---
+                if (enemyPressure > 0) {
+                    // 1. Direct Contact: I am the membrane.
+                    // If enemies outnumber friends nearby, or just raw pressure
+                    this.conversion += 0.005 * enemyPressure;
+                } else if (maxFriendConversion > this.conversion) {
+                    // 2. Osmosis: I am inside the bubble.
+                    // My friends are dying, so I start dying too (bleed effect)
+                    // We slowly match our most panicked neighbor
+                    this.conversion += (maxFriendConversion - this.conversion) * 0.05;
+                } else {
+                    // 3. Recovery: Safe
+                    this.conversion -= 0.01;
+                }
+
+                // Clamp conversion
+                if (this.conversion < 0) this.conversion = 0;
+                if (this.conversion > 1) {
+                    this.conversion = 1;
+                    this.kill(); // Fully converted = eaten
+                    return;
+                }
+                // ----------------------------------
+
                 if (countAvo > 0) {
                     avoX /= countAvo; avoY /= countAvo;
                     const mag = Math.sqrt(avoX*avoX + avoY*avoY);
@@ -304,6 +353,9 @@
                     this.acceleration.x += sX;
                     this.acceleration.y += sY;
                 }
+            } else {
+                // Not fighting? Reset conversion
+                this.conversion = 0;
             }
 
             if (countSep > 0) {
@@ -362,7 +414,12 @@
         update() {
             if (this.dead) return; 
             this.velocity.add(this.acceleration);
-            this.velocity.limit(MAX_SPEED);
+            
+            // If converting, we slow down (sluggish/trapped feel)
+            let limit = MAX_SPEED;
+            if (this.conversion > 0.5) limit *= 0.6;
+            
+            this.velocity.limit(limit);
             this.position.add(this.velocity);
             this.acceleration.mult(0);
         }
@@ -422,7 +479,19 @@
                 return;
             }
             
-            ctx.fillStyle = this.colliding ? '#ff0000' : color;
+            // --- DRAW CONVERSION COLOR ---
+            if (this.conversion > 0.05) {
+                // Interpolate from Black (0,0,0) to Blue (0,0,255)
+                const blueVal = Math.floor(this.conversion * 255);
+                const blueHex = blueVal.toString(16).padStart(2, '0');
+                // The base color is #000000 (black). 
+                // We shift the Blue channel up.
+                ctx.fillStyle = `#0000${blueHex}`;
+            } else {
+                ctx.fillStyle = this.colliding ? '#ff0000' : color;
+            }
+            // -----------------------------
+            
             ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
         }
     }
@@ -583,7 +652,7 @@
             p.colliding = false;
         }
 
-        // 2. COLLISION
+        // 2. COLLISION (Standard head-on collisions)
         if (isFighting) {
             for (let i = 0; i < NUM_PARTICLES; i++) {
                 const pSelf = particlesHost[i];
@@ -668,7 +737,7 @@
 
     // --- NETWORK ---
     function setupNetwork() {
-        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v17_rematch' }, 'swarm_room_main');
+        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v18_osmosis' }, 'swarm_room_main');
         
         const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
         const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -685,7 +754,6 @@
             peers--; 
             updateStatus(); 
             if(peers <= 0) isFighting = false; 
-            // Trigger A. Wolff's GC hack when a peer leaves
             if(window.triggerGC) window.triggerGC();
         });
 
@@ -711,12 +779,10 @@
         const fightBtn = document.getElementById('fight-btn');
         fightBtn.onclick = () => {
             if (peers > 0) {
-                // Check if it's a REMATCH or a fresh fight
                 if (fightBtn.innerText === "REMATCH") {
                     respawnSwarm();
-                    if(window.triggerGC) window.triggerGC(); // Clean up before new match
+                    if(window.triggerGC) window.triggerGC(); 
                     netSendRematch('GO');
-                    // Force UI update to prevent flicker
                     fightBtn.style.display = 'none';
                     document.getElementById('enemy-stats').style.display = 'block';
                 } else {
@@ -734,9 +800,8 @@
 
         getRematch((data) => {
             respawnSwarm();
-            if(window.triggerGC) window.triggerGC(); // Clean up before new match
+            if(window.triggerGC) window.triggerGC(); 
             isFighting = true;
-            // UI will auto-update in animate loop based on counts
         });
 
         getHeartbeat((data) => {});
