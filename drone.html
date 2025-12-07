@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Drone Swarm - Osmosis Logic</title>
+    <title>Drone Swarm - Traitor Logic</title>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <script>
         (function() {
-            // Garbage Collection Trigger for Peer cleanup
             window.triggerGC = function() {
                 queueMicrotask(() => { 
                     try {
@@ -22,7 +21,6 @@
                 });
             };
 
-            // Connection Tracking Wrapper
             const OriginalRTCPeerConnection = window.RTCPeerConnection;
             const activeConnections = new Set();
 
@@ -179,10 +177,7 @@
             this.dead = false; 
             this.isDying = false; 
             this.expansion = 1.0;
-            
-            // --- NEW PROPERTY: CONVERSION ---
-            // 0.0 = Fully Friendly (Black)
-            // 1.0 = Fully Converted/Eaten (Blue)
+            // 0.0 = Loyal, 1.0 = Traitor/Converted
             this.conversion = 0.0;
         }
 
@@ -241,21 +236,21 @@
             this.acceleration.y += steerY;
         }
 
-        applyBehaviors(particles, target, enemies, fighting, bothActive) {
+        // Modified applyBehaviors to include enemyTarget for traitors
+        applyBehaviors(particles, myTarget, enemyTarget, enemies, fighting, bothActive) {
             if (this.dead || this.isDying) return;
 
             let sepX = 0, sepY = 0, countSep = 0;
             let aliX = 0, aliY = 0;
             let cohX = 0, cohY = 0, countCoh = 0;
             
-            // --- OSMOSIS VARIABLES ---
-            let maxFriendConversion = 0; // The most "infected" neighbor found
-            let friendNeighbors = 0;
-            // -------------------------
+            // Osmosis Variables
+            let maxNeighborConversion = 0;
 
             const px = this.position.x;
             const py = this.position.y;
 
+            // 1. FRIENDS LOOP
             for (let i = 0; i < particles.length; i++) {
                 const other = particles[i];
                 if (other === this || other.dead || other.isDying) continue;
@@ -266,8 +261,6 @@
 
                 if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
                     const dist = Math.sqrt(dSq);
-                    
-                    // Separation / Cohesion / Alignment
                     if (dSq < SEPARATION_DISTANCE_SQ) {
                         sepX += (dx / dist) / dist; 
                         sepY += (dy / dist) / dist;
@@ -279,17 +272,16 @@
                     cohY += other.position.y;
                     countCoh++;
 
-                    // --- OSMOSIS CHECK ---
-                    // If my neighbor is converting, I should too (spreads the "bubble" effect)
-                    if (other.conversion > maxFriendConversion) {
-                        maxFriendConversion = other.conversion;
+                    // Osmosis: Pick up panic from friends
+                    if (other.conversion > maxNeighborConversion) {
+                        maxNeighborConversion = other.conversion;
                     }
-                    friendNeighbors++;
-                    // ---------------------
                 }
             }
 
-            let enemyPressure = 0; // How many enemies are close?
+            // 2. ENEMIES LOOP
+            let trappedQuadrants = 0; // Bitmask: 1=TL, 2=TR, 4=BL, 8=BR
+            let distinctQuadrants = 0;
 
             if (fighting && enemies && !bothActive) {
                 let avoX = 0, avoY = 0, countAvo = 0;
@@ -305,38 +297,26 @@
                         avoY += (dy / dist) / dist;
                         countAvo++;
 
-                        // --- DIRECT PRESSURE ---
-                        // If enemy is very close, pressure increases
-                        if (dSq < 900) { // 30px radius
-                            enemyPressure++;
+                        // Encirclement Logic: Check quadrants within a tight radius (25px)
+                        if (dSq < 625) { 
+                            let q = 0;
+                            if (dx > 0 && dy > 0) q = 1;      // Top Left relative to enemy
+                            else if (dx < 0 && dy > 0) q = 2; // Top Right
+                            else if (dx > 0 && dy < 0) q = 4; // Bottom Left
+                            else if (dx < 0 && dy < 0) q = 8; // Bottom Right
+                            trappedQuadrants |= q;
                         }
-                        // -----------------------
                     }
                 }
                 
-                // --- CONVERSION LOGIC (THE FIX) ---
-                if (enemyPressure > 0) {
-                    // 1. Direct Contact: I am the membrane.
-                    // If enemies outnumber friends nearby, or just raw pressure
-                    this.conversion += 0.005 * enemyPressure;
-                } else if (maxFriendConversion > this.conversion) {
-                    // 2. Osmosis: I am inside the bubble.
-                    // My friends are dying, so I start dying too (bleed effect)
-                    // We slowly match our most panicked neighbor
-                    this.conversion += (maxFriendConversion - this.conversion) * 0.05;
-                } else {
-                    // 3. Recovery: Safe
-                    this.conversion -= 0.01;
-                }
-
-                // Clamp conversion
-                if (this.conversion < 0) this.conversion = 0;
-                if (this.conversion > 1) {
-                    this.conversion = 1;
-                    this.kill(); // Fully converted = eaten
-                    return;
-                }
-                // ----------------------------------
+                // Count how many distinct sides have enemies
+                // We need at least 3 sides blocked to consider it a "Trap"
+                // If it's just 1 or 2, it's likely a head-on collision or flank, not a bubble.
+                distinctQuadrants = 0;
+                if (trappedQuadrants & 1) distinctQuadrants++;
+                if (trappedQuadrants & 2) distinctQuadrants++;
+                if (trappedQuadrants & 4) distinctQuadrants++;
+                if (trappedQuadrants & 8) distinctQuadrants++;
 
                 if (countAvo > 0) {
                     avoX /= countAvo; avoY /= countAvo;
@@ -353,11 +333,32 @@
                     this.acceleration.x += sX;
                     this.acceleration.y += sY;
                 }
+            }
+
+            // 3. CONVERSION CALCULATION
+            if (fighting) {
+                // If 3 or more sides are blocked, I am physically trapped.
+                if (distinctQuadrants >= 3) {
+                    this.conversion += 0.05; 
+                } 
+                // If I'm not physically trapped, but my neighbor is panicking, I get infected (Osmosis)
+                // This spreads the effect through the bubble.
+                else if (maxNeighborConversion > this.conversion + 0.1) {
+                    this.conversion += 0.03;
+                }
+                // Recovery: If neither trapped nor near panicked friends, heal.
+                else {
+                    this.conversion -= 0.02;
+                }
+                
+                // Clamp
+                if (this.conversion < 0) this.conversion = 0;
+                if (this.conversion > 1) this.conversion = 1;
             } else {
-                // Not fighting? Reset conversion
                 this.conversion = 0;
             }
 
+            // 4. STANDARD FLOCKING
             if (countSep > 0) {
                 sepX /= countSep; sepY /= countSep;
                 const mag = Math.sqrt(sepX*sepX + sepY*sepY);
@@ -396,11 +397,33 @@
                 this.steerTo(cohX, cohY, dynamicFactor);
             }
 
-            if (hasInteracted) {
-                const dResX = target.x - px;
-                const dResY = target.y - py;
-                if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
-                    this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
+            // 5. SEEK BEHAVIOR (TRAITOR LOGIC)
+            // If I am fully converted (>0.9), I listen to the ENEMY input.
+            // Otherwise I listen to MY HOST input.
+            if (hasInteracted || this.conversion > 0.9) {
+                let tX, tY;
+                
+                if (this.conversion > 0.9 && fighting) {
+                    // TRAITOR: Follow enemy cursor
+                    tX = enemyTarget.x;
+                    tY = enemyTarget.y;
+                } else {
+                    // LOYAL: Follow my cursor
+                    tX = myTarget.x;
+                    tY = myTarget.y;
+                }
+
+                // If following my own target, check activation distance
+                if (this.conversion <= 0.9 && hasInteracted) {
+                    const dResX = tX - px;
+                    const dResY = tY - py;
+                    if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
+                        this.steerTo(tX, tY, TARGET_SEEK_FACTOR);
+                    }
+                } 
+                // If traitor, always seek (no activation distance needed)
+                else if (this.conversion > 0.9) {
+                    this.steerTo(tX, tY, TARGET_SEEK_FACTOR);
                 }
             } else {
                 const margin = 50;
@@ -414,12 +437,7 @@
         update() {
             if (this.dead) return; 
             this.velocity.add(this.acceleration);
-            
-            // If converting, we slow down (sluggish/trapped feel)
-            let limit = MAX_SPEED;
-            if (this.conversion > 0.5) limit *= 0.6;
-            
-            this.velocity.limit(limit);
+            this.velocity.limit(MAX_SPEED);
             this.position.add(this.velocity);
             this.acceleration.mult(0);
         }
@@ -479,19 +497,17 @@
                 return;
             }
             
-            // --- DRAW CONVERSION COLOR ---
-            if (this.conversion > 0.05) {
-                // Interpolate from Black (0,0,0) to Blue (0,0,255)
-                const blueVal = Math.floor(this.conversion * 255);
-                const blueHex = blueVal.toString(16).padStart(2, '0');
-                // The base color is #000000 (black). 
-                // We shift the Blue channel up.
-                ctx.fillStyle = `#0000${blueHex}`;
+            // Color Logic: Lerp to Blue if converting
+            if (this.conversion > 0.1) {
+                const ratio = this.conversion;
+                // Simple lerp from Black (0,0,0) to Blue (0,0,255)
+                const b = Math.floor(255 * ratio);
+                const hexB = b.toString(16).padStart(2, '0');
+                ctx.fillStyle = `#0000${hexB}`;
             } else {
                 ctx.fillStyle = this.colliding ? '#ff0000' : color;
             }
-            // -----------------------------
-            
+
             ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
         }
     }
@@ -607,6 +623,9 @@
             if (netSendHeartbeat) netSendHeartbeat(1); 
 
             if (peers > 0 && netSendSwarmData) {
+                // We send data normally. If a particle is "Traitor" (Blue),
+                // we still send its position. The enemy viewer will just see it
+                // as a black particle moving strangely (towards them).
                 const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
                 for (let p of particlesHost) {
                     if (!p.dead && !p.isDying) {
@@ -642,7 +661,8 @@
 
         // 1. UPDATE
         for (let p of particlesHost) {
-            p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting, bothActive);
+            // PASS targetViewer here so converted particles can find it
+            p.applyBehaviors(particlesHost, targetHost, targetViewer, isFighting ? particlesViewer : null, isFighting, bothActive);
             p.update();
             p.colliding = false;
         }
@@ -652,7 +672,7 @@
             p.colliding = false;
         }
 
-        // 2. COLLISION (Standard head-on collisions)
+        // 2. COLLISION - RESTORED TO ORIGINAL "WORKING" VERSION
         if (isFighting) {
             for (let i = 0; i < NUM_PARTICLES; i++) {
                 const pSelf = particlesHost[i];
@@ -737,7 +757,8 @@
 
     // --- NETWORK ---
     function setupNetwork() {
-        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v18_osmosis' }, 'swarm_room_main');
+        // Updated ID to avoid cached peer data from previous versions
+        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v19_traitor_fixed' }, 'swarm_room_main');
         
         const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
         const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
