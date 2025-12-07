@@ -3,48 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Drone</title>
+    <title>DRONE</title>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <script>
-        (function() {
-            window.triggerGC = function() {
-                queueMicrotask(() => { 
-                    try {
-                        let img = document.createElement("img");
-                        img.src = window.URL.createObjectURL(new Blob([new ArrayBuffer(5e+7)])); 
-                        img.onerror = function() {
-                            window.URL.revokeObjectURL(this.src);
-                            img = null;
-                        }
-                    } catch(e) {}
-                });
-            };
-
-            const OriginalRTCPeerConnection = window.RTCPeerConnection;
-            const activeConnections = new Set();
-
-            window.RTCPeerConnection = function(...args) {
-                const pc = new OriginalRTCPeerConnection(...args);
-                activeConnections.add(pc);
-                const originalClose = pc.close.bind(pc);
-                pc.close = function() {
-                    if (pc.signalingState !== 'closed') originalClose();
-                    activeConnections.delete(pc);
-                };
-                return pc;
-            };
-
-            window.RTCPeerConnection.prototype = OriginalRTCPeerConnection.prototype;
-            Object.keys(OriginalRTCPeerConnection).forEach(prop => {
-                window.RTCPeerConnection[prop] = OriginalRTCPeerConnection[prop];
+        window.triggerGC = function() {
+            queueMicrotask(() => {
+                try {
+                    // Create a 50MB buffer to force browser cleanup
+                    let img = document.createElement("img");
+                    img.src = window.URL.createObjectURL(new Blob([new ArrayBuffer(5e+7)])); 
+                    img.onerror = function() {
+                        window.URL.revokeObjectURL(this.src);
+                        img = null;
+                    }
+                } catch(e) {
+                    console.log("GC trigger skipped");
+                }
             });
+        };
 
-            window.addEventListener('beforeunload', () => {
-                activeConnections.forEach(pc => pc.close());
-                activeConnections.clear();
-            });
-        })();
+        // Run immediately on load to clear connections from previous page reloads
+        window.triggerGC();
     </script>
 
     <script type="module">
@@ -134,10 +114,6 @@
     const SEEK_ACTIVATION_SQ = 100 * 100;
     const COLLISION_SQ = (PARTICLE_SIZE * 2) ** 2; 
 
-    // DENSITY LOGIC
-    const DENSITY_THRESHOLD = 12; // Neighbors required to feel crushed
-    const TIME_TO_CONVERT = 180;  // Frames (approx 3s)
-
     function sfc32(a, b, c, d) {
         return function() {
             a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
@@ -181,10 +157,6 @@
             this.dead = false; 
             this.isDying = false; 
             this.expansion = 1.0;
-            
-            // LOGIC: Traitors
-            this.isTraitor = false;
-            this.compressionTimer = 0;
         }
 
         respawn(x, y) {
@@ -195,8 +167,6 @@
             this.dead = false;
             this.isDying = false;
             this.expansion = 1.0;
-            this.isTraitor = false;
-            this.compressionTimer = 0;
         }
 
         hide() {
@@ -207,7 +177,7 @@
         }
 
         kill() {
-            if (this.dead || this.isDying || this.isTraitor) return; // Traitors don't die, they surrendered
+            if (this.dead || this.isDying) return;
             this.isDying = true;
             this.velocity.mult(0.2); 
         }
@@ -243,30 +213,8 @@
             this.acceleration.y += steerY;
         }
 
-        applyBehaviors(particles, myTarget, enemyTarget, enemies, fighting, bothActive) {
+        applyBehaviors(particles, target, enemies, fighting, bothActive) {
             if (this.dead || this.isDying) return;
-
-            // TRAITOR BEHAVIOR
-            // If I turned traitor, I follow the enemy cursor and ignore team rules
-            if (this.isTraitor) {
-                this.steerTo(enemyTarget.x, enemyTarget.y, TARGET_SEEK_FACTOR);
-                // Simple separation so they don't stack infinitely
-                let sepX = 0, sepY = 0, countSep = 0;
-                for (let other of particles) {
-                    if (other === this || other.dead) continue;
-                    let dx = this.position.x - other.position.x;
-                    let dy = this.position.y - other.position.y;
-                    let dSq = dx*dx + dy*dy;
-                    if (dSq > 0 && dSq < 100) { // Tiny separation
-                         sepX += dx; sepY += dy; countSep++;
-                    }
-                }
-                if (countSep > 0) {
-                    this.acceleration.x += (sepX/countSep) * 0.05;
-                    this.acceleration.y += (sepY/countSep) * 0.05;
-                }
-                return; 
-            }
 
             let sepX = 0, sepY = 0, countSep = 0;
             let aliX = 0, aliY = 0;
@@ -274,7 +222,6 @@
             const px = this.position.x;
             const py = this.position.y;
 
-            // 1. DENSITY CHECK (Am I being crushed?)
             for (let i = 0; i < particles.length; i++) {
                 const other = particles[i];
                 if (other === this || other.dead || other.isDying) continue;
@@ -285,11 +232,10 @@
 
                 if (dSq > 0 && dSq < PERCEPTION_RADIUS_SQ) {
                     const dist = Math.sqrt(dSq);
-                    
                     if (dSq < SEPARATION_DISTANCE_SQ) {
                         sepX += (dx / dist) / dist; 
                         sepY += (dy / dist) / dist;
-                        countSep++; // DENSITY COUNTER
+                        countSep++;
                     }
                     aliX += other.velocity.x;
                     aliY += other.velocity.y;
@@ -299,28 +245,11 @@
                 }
             }
 
-            // CHECK COMPRESSION
-            if (fighting) {
-                if (countSep > DENSITY_THRESHOLD) {
-                    this.compressionTimer++;
-                    if (this.compressionTimer > TIME_TO_CONVERT) {
-                        this.isTraitor = true; // SURRENDER!
-                        return;
-                    }
-                } else {
-                    if (this.compressionTimer > 0) this.compressionTimer--;
-                }
-            }
-
-            // 2. ENEMY AVOIDANCE (Only if loyal)
             if (fighting && enemies && !bothActive) {
                 let avoX = 0, avoY = 0, countAvo = 0;
                 for (let i = 0; i < enemies.length; i++) {
                     const other = enemies[i];
                     if (other.dead || other.isDying) continue;
-                    // If the enemy is a traitor (on their side), they are technically my ally now, ignore them
-                    if (other.isTraitor) continue;
-
                     const dx = px - other.position.x;
                     const dy = py - other.position.y;
                     const dSq = dx*dx + dy*dy;
@@ -348,7 +277,6 @@
                 }
             }
 
-            // 3. FLOCKING
             if (countSep > 0) {
                 sepX /= countSep; sepY /= countSep;
                 const mag = Math.sqrt(sepX*sepX + sepY*sepY);
@@ -388,10 +316,10 @@
             }
 
             if (hasInteracted) {
-                const dResX = myTarget.x - px;
-                const dResY = myTarget.y - py;
+                const dResX = target.x - px;
+                const dResY = target.y - py;
                 if ((dResX*dResX + dResY*dResY) > SEEK_ACTIVATION_SQ) {
-                    this.steerTo(myTarget.x, myTarget.y, TARGET_SEEK_FACTOR);
+                    this.steerTo(target.x, target.y, TARGET_SEEK_FACTOR);
                 }
             } else {
                 const margin = 50;
@@ -411,7 +339,6 @@
         }
 
         updateViewer() {
-            // Update positions from network data
             if (this.serverPos.x < -5000) {
                 if (this.position.x < -5000) {
                     this.dead = true;
@@ -450,7 +377,7 @@
             }
         }
 
-        draw(ctx, myTeamColor, enemyTeamColor) {
+        draw(ctx, color) {
             if (this.dead) return;
 
             if (this.isDying) {
@@ -466,15 +393,7 @@
                 return;
             }
             
-            // COLOR LOGIC FOR SYMMETRIC BETRAYAL
-            // If I am Traitor -> Use Enemy Color
-            // If I am Loyal -> Use My Team Color
-            if (this.isTraitor) {
-                ctx.fillStyle = enemyTeamColor;
-            } else {
-                ctx.fillStyle = this.colliding ? '#ff0000' : myTeamColor;
-            }
-            
+            ctx.fillStyle = this.colliding ? '#ff0000' : color;
             ctx.fillRect(this.position.x, this.position.y, PARTICLE_SIZE, PARTICLE_SIZE);
         }
     }
@@ -569,6 +488,8 @@
 
         if (isFighting) {
             enemyCountSpan.innerText = enemyCount;
+            
+            // If game is over (one side dead), show Rematch button
             if (myCount === 0 || enemyCount === 0) {
                 if (fightBtn.style.display === 'none') {
                     fightBtn.innerText = "REMATCH";
@@ -576,6 +497,7 @@
                     enemyStats.style.display = 'none';
                 }
             } else {
+                // Normal fighting
                 fightBtn.style.display = 'none';
                 enemyStats.style.display = 'block';
             }
@@ -587,13 +509,12 @@
             if (netSendHeartbeat) netSendHeartbeat(1); 
 
             if (peers > 0 && netSendSwarmData) {
-                // PAYLOAD: [Active, tX, tY, p1x, p1y, p1Traitor, p2x, p2y, p2Traitor...]
                 const payload = [myInputActive ? 1 : 0, Math.round(targetHost.x), Math.round(targetHost.y)];
                 for (let p of particlesHost) {
                     if (!p.dead && !p.isDying) {
-                        payload.push(Math.round(p.position.x), Math.round(p.position.y), p.isTraitor ? 1 : 0);
+                        payload.push(Math.round(p.position.x), Math.round(p.position.y));
                     } else {
-                        payload.push(-9999, -9999, 0);
+                        payload.push(-9999, -9999);
                     }
                 }
                 netSendSwarmData(payload);
@@ -621,15 +542,13 @@
             }
         }
 
-        // 1. UPDATE HOST PARTICLES
+        // 1. UPDATE
         for (let p of particlesHost) {
-            // My particles (Host) check density. If Traitor, they seek ViewerTarget
-            p.applyBehaviors(particlesHost, targetHost, targetViewer, isFighting ? particlesViewer : null, isFighting, bothActive);
+            p.applyBehaviors(particlesHost, targetHost, isFighting ? particlesViewer : null, isFighting, bothActive);
             p.update();
             p.colliding = false;
         }
 
-        // 2. UPDATE VIEWER PARTICLES (From Network)
         for (let p of particlesViewer) {
             p.updateViewer(); 
             p.colliding = false;
@@ -639,13 +558,11 @@
         if (isFighting) {
             for (let i = 0; i < NUM_PARTICLES; i++) {
                 const pSelf = particlesHost[i];
-                // Traitors are invincible (they surrendered)
-                if (pSelf.dead || pSelf.isDying || pSelf.isTraitor) continue; 
+                if (pSelf.dead || pSelf.isDying) continue; 
 
                 for (let j = 0; j < NUM_PARTICLES; j++) {
                     const pEnemy = particlesViewer[j];
-                    // Enemy traitors are invincible too
-                    if (pEnemy.dead || pEnemy.isDying || pEnemy.isTraitor) continue; 
+                    if (pEnemy.dead || pEnemy.isDying) continue; 
 
                     const dx = pSelf.position.x - pEnemy.position.x;
                     if (Math.abs(dx) > 10) continue; 
@@ -659,7 +576,6 @@
                         if (!bothActive) {
                             pSelf.divert(pEnemy);
                         } else {
-                            // Standard Collision Logic
                             const v1 = pSelf.velocity.copy();
                             const v2 = pEnemy.velocity.copy();
                             const v1n = v1.copy().normalize();
@@ -670,19 +586,36 @@
                             const speedEnemySq = pEnemy.velocity.magSq();
 
                             if (dot > 0.5) {
-                                if (speedEnemySq > speedSelfSq * 4.0) { pSelf.kill(); break; } 
-                                else { pSelf.divert(pEnemy); }
+                                if (speedEnemySq > speedSelfSq * 4.0) {
+                                    pSelf.kill(); 
+                                    break; 
+                                } else {
+                                    pSelf.divert(pEnemy);
+                                }
                             } 
                             else if (dot < -0.5) {
-                                if (speedSelfSq < speedEnemySq) { pSelf.kill(); break; }
+                                if (speedSelfSq < speedEnemySq) {
+                                    pSelf.kill();
+                                    break;
+                                }
                                 else if (Math.abs(speedSelfSq - speedEnemySq) < 0.2) {
-                                    if (speedSelfSq > 2.0) { pSelf.kill(); break; } 
-                                    else { pSelf.divert(pEnemy); }
-                                } else { pSelf.divert(pEnemy); }
+                                    if (speedSelfSq > 2.0) { 
+                                        pSelf.kill();
+                                        break;
+                                    } else {
+                                        pSelf.divert(pEnemy);
+                                    }
+                                } else {
+                                    pSelf.divert(pEnemy);
+                                }
                             } 
                             else {
-                                if (speedEnemySq > speedSelfSq) { pSelf.kill(); break; } 
-                                else { pSelf.divert(pEnemy); }
+                                if (speedEnemySq > speedSelfSq) {
+                                    pSelf.kill();
+                                    break;
+                                } else {
+                                    pSelf.divert(pEnemy);
+                                }
                             }
                         }
                     }
@@ -691,13 +624,11 @@
         }
 
         // 3. DRAW
-        // Host (My) particles: Default Black (#000000), if Traitor -> Blue (#0000ff)
-        for (let p of particlesHost) p.draw(ctx, '#000000', '#0000ff');
+        for (let p of particlesHost) p.draw(ctx, '#000000');
         
         if (peers > 0) {
-            // Viewer (Enemy) particles: Default Blue (#0000ff), if Traitor -> Black (#000000)
-            const baseColor = isFighting ? '#0000ff' : '#cccccc';
-            for (let p of particlesViewer) p.draw(ctx, baseColor, '#000000');
+            const enemyColor = isFighting ? '#0000ff' : '#cccccc';
+            for (let p of particlesViewer) p.draw(ctx, enemyColor);
         }
 
         document.getElementById('my-count').innerText = myCount;
@@ -708,7 +639,7 @@
 
     // --- NETWORK ---
     function setupNetwork() {
-        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v20_final' }, 'swarm_room_main');
+        const room = window.joinRoom({ appId: 'pixel_swarm_sim_v17_rematch' }, 'swarm_room_main');
         
         const [sendHeartbeat, getHeartbeat] = room.makeAction('hb');
         const [sendSwarmData, getSwarmData] = room.makeAction('sd'); 
@@ -725,6 +656,7 @@
             peers--; 
             updateStatus(); 
             if(peers <= 0) isFighting = false; 
+            // FIX: Run GC when a peer leaves to prevent zombie connections
             if(window.triggerGC) window.triggerGC();
         });
 
@@ -735,21 +667,13 @@
             targetViewer.y = LOGICAL_SIZE - data[2];
 
             let pIndex = 0;
-            // Iterate by 3 now (x, y, traitorStatus)
-            for (let i = 3; i < data.length; i += 3) {
+            for (let i = 3; i < data.length; i += 2) {
                 if (pIndex < particlesViewer.length) {
                     const p = particlesViewer[pIndex];
                     const rx = data[i];
                     const ry = data[i+1];
-                    const rt = data[i+2]; // Traitor Flag
-
-                    if (rx < -5000) { 
-                        p.serverPos.x = -9999; p.serverPos.y = -9999; 
-                    } else { 
-                        p.serverPos.x = LOGICAL_SIZE - rx; 
-                        p.serverPos.y = LOGICAL_SIZE - ry; 
-                        p.isTraitor = (rt === 1); // Set Traitor Status from network
-                    }
+                    if (rx < -5000) { p.serverPos.x = -9999; p.serverPos.y = -9999; } 
+                    else { p.serverPos.x = LOGICAL_SIZE - rx; p.serverPos.y = LOGICAL_SIZE - ry; }
                 }
                 pIndex++;
             }
@@ -758,10 +682,12 @@
         const fightBtn = document.getElementById('fight-btn');
         fightBtn.onclick = () => {
             if (peers > 0) {
+                // Check if it's a REMATCH or a fresh fight
                 if (fightBtn.innerText === "REMATCH") {
                     respawnSwarm();
-                    if(window.triggerGC) window.triggerGC(); 
+                    if(window.triggerGC) window.triggerGC(); // Optional GC between matches
                     netSendRematch('GO');
+                    // Force UI update to prevent flicker
                     fightBtn.style.display = 'none';
                     document.getElementById('enemy-stats').style.display = 'block';
                 } else {
@@ -781,6 +707,7 @@
             respawnSwarm();
             if(window.triggerGC) window.triggerGC(); 
             isFighting = true;
+            // UI will auto-update in animate loop based on counts
         });
 
         getHeartbeat((data) => {});
