@@ -2,315 +2,284 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Touch Pressure Strategies</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pressure Drawing Demo</title>
     <style>
-        :root {
-            --primary: #3b82f6;
-            --bg: #f3f4f6;
-            --surface: #ffffff;
-            --text: #1f2937;
-        }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
             margin: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            font-family: sans-serif;
+            touch-action: none; /* Prevent scrolling while drawing */
             display: flex;
             flex-direction: column;
             height: 100vh;
-            overflow: hidden;
         }
 
-        /* Tabs Navigation */
-        .tabs {
+        /* Controls */
+        .controls {
+            background: #333;
+            color: white;
+            padding: 10px;
             display: flex;
-            background: var(--surface);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            gap: 10px;
+            justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             z-index: 10;
         }
-        .tab-btn {
-            flex: 1;
-            padding: 15px;
-            border: none;
-            background: none;
-            font-weight: 600;
-            color: #6b7280;
+
+        .btn {
+            background: #555;
+            border: 1px solid #777;
+            color: #ddd;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
             cursor: pointer;
-            border-bottom: 3px solid transparent;
-            transition: all 0.2s;
-        }
-        .tab-btn.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
-        }
-
-        /* Content Area */
-        .tab-content {
-            display: none;
             flex: 1;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            position: relative;
-        }
-        .tab-content.active {
-            display: flex;
+            text-align: center;
+            transition: background 0.2s;
         }
 
-        /* Demo Elements */
-        .target-zone {
-            width: 200px;
-            height: 200px;
-            background: #e5e7eb;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            user-select: none;
-            touch-action: none; /* Critical for JS handling */
-            transition: background 0.1s;
-            box-shadow: inset 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        .status-text {
-            margin-top: 20px;
-            font-size: 1.2rem;
+        .btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #2563eb;
             font-weight: bold;
-            height: 1.5em;
+        }
+
+        /* The Canvas */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            cursor: crosshair;
+            background: white;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Info HUD */
+        .hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #0f0;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            pointer-events: none;
+            user-select: none;
         }
         
-        .sub-text {
-            font-size: 0.9rem;
-            color: #666;
-            margin-bottom: 20px;
-            text-align: center;
-            max-width: 300px;
-        }
-
-        /* Strategy 1: Scale Visualization */
-        #ball-1 {
-            width: 50px;
-            height: 50px;
-            background: var(--primary);
-            border-radius: 50%;
-            transform: scale(1);
-            transition: transform 0.05s linear;
-        }
-
-        /* Strategy 2: Area Visualization */
-        #outline-2 {
-            border: 2px dashed var(--primary);
-            border-radius: 50%;
-            width: 1px;
-            height: 1px;
+        .clear-btn {
             position: absolute;
-            opacity: 0.5;
-            pointer-events: none;
-        }
-
-        /* Strategy 3: Fill Animation */
-        #fill-3 {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 0%;
-            background: var(--primary);
-            opacity: 0.3;
-            border-radius: 50%;
-            transition: height 0.1s linear;
-            pointer-events: none;
-            overflow: hidden;
+            bottom: 20px;
+            right: 20px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
         }
     </style>
 </head>
 <body>
 
-    <nav class="tabs">
-        <button class="tab-btn active" onclick="switchTab(1)">1. Native API</button>
-        <button class="tab-btn" onclick="switchTab(2)">2. Touch Area</button>
-        <button class="tab-btn" onclick="switchTab(3)">3. Time Heuristic</button>
-    </nav>
-
-    <!-- TAB 1: Native Pressure -->
-    <div id="tab-1" class="tab-content active">
-        <div class="sub-text">Requires hardware support (3D Touch / Pen Tablet / Some Androids).</div>
-        <div class="target-zone" id="zone-1">
-            <div id="ball-1"></div>
-        </div>
-        <div class="status-text" id="status-1">Waiting for input...</div>
+    <div class="controls">
+        <div class="btn active" onclick="setStrategy(1)">1. Squish (Area)</div>
+        <div class="btn" onclick="setStrategy(2)">2. Speed (Velo)</div>
+        <div class="btn" onclick="setStrategy(3)">3. Flow (Marker)</div>
     </div>
 
-    <!-- TAB 2: Touch Area -->
-    <div id="tab-2" class="tab-content">
-        <div class="sub-text">Detects "squish". Press flat with your thumb pad vs. tip.</div>
-        <div class="target-zone" id="zone-2">
-            <div id="outline-2"></div>
-            <span style="z-index:2; font-weight:bold; color:#444;">Touch Me</span>
-        </div>
-        <div class="status-text" id="status-2">Radius: 0px</div>
-    </div>
-
-    <!-- TAB 3: Time Based -->
-    <div id="tab-3" class="tab-content">
-        <div class="sub-text">Hold > 500ms for "Heavy". Quick tap for "Light".</div>
-        <div class="target-zone" id="zone-3">
-            <div id="fill-3"></div>
-            <span style="z-index:2; font-weight:bold; color:#444;">Hold Me</span>
-        </div>
-        <div class="status-text" id="status-3">Idle</div>
+    <div id="canvas-container">
+        <div class="hud" id="hud">Mode: Area<br>Val: 0</div>
+        <canvas id="drawArea"></canvas>
+        <button class="clear-btn" onclick="clearCanvas()">Clear</button>
     </div>
 
     <script>
-        // --- Tab Logic ---
-        function switchTab(id) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById(`tab-${id}`).classList.add('active');
-            document.querySelectorAll('.tab-btn')[id-1].classList.add('active');
-        }
+        const canvas = document.getElementById('drawArea');
+        const ctx = canvas.getContext('2d');
+        const hud = document.getElementById('hud');
+        let activeStrategy = 1;
 
-        // --- Strategy 1: Native Pressure API ---
-        const zone1 = document.getElementById('zone-1');
-        const ball1 = document.getElementById('ball-1');
-        const status1 = document.getElementById('status-1');
-
-        function handlePressure(e) {
-            e.preventDefault();
-            
-            // 1. Try Pointer Events (Standards Track)
-            let pressure = e.pressure;
-
-            // 2. Fallback for iOS/WebKit "Force Touch" if pointer event pressure is 0 or 0.5 (default mouse)
-            if ((pressure === 0 || pressure === 0.5) && e.touches && e.touches[0]) {
-                if (e.touches[0].force !== undefined) {
-                    pressure = e.touches[0].force;
-                }
-            }
-
-            // Normalization: Some devices return 0.5 constantly if hardware not supported.
-            // We only visualize if we detect meaningful variation or explicit 0-1 range.
-            
-            // Visual Feedback
-            // Scale ball from 1x to 2.5x based on pressure
-            const scale = 1 + (pressure * 1.5);
-            ball1.style.transform = `scale(${scale})`;
-
-            // Text Feedback
-            if (pressure === 0) status1.innerText = "Touch detected (No Force)";
-            else if (pressure < 0.5) status1.innerText = `Light Touch (${pressure.toFixed(2)})`;
-            else status1.innerText = `HEAVY PRESS (${pressure.toFixed(2)})`;
-        }
-
-        zone1.addEventListener('pointerdown', handlePressure);
-        zone1.addEventListener('pointermove', handlePressure);
-        zone1.addEventListener('touchstart', handlePressure); // iOS Fallback
-        zone1.addEventListener('touchmove', handlePressure);  // iOS Fallback
+        // Drawing State
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let lastTime = 0;
+        let lastWidth = 5; // For smoothing
         
-        zone1.addEventListener('pointerup', () => {
-            ball1.style.transform = 'scale(1)';
-            status1.innerText = "Released";
-        });
-        zone1.addEventListener('touchend', () => {
-            ball1.style.transform = 'scale(1)';
-            status1.innerText = "Released";
-        });
+        // Resize canvas to full screen
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-
-        // --- Strategy 2: Contact Area (Radius) ---
-        const zone2 = document.getElementById('zone-2');
-        const outline2 = document.getElementById('outline-2');
-        const status2 = document.getElementById('status-2');
-        let baseRadius = 0;
-
-        function handleArea(e) {
-            e.preventDefault();
-            const touch = e.touches[0];
-            
-            // Get radius (fallback to standard pixel size if not supported)
-            // radiusX/Y are experimental but widely supported on mobile
-            let rX = touch.radiusX || 20;
-            let rY = touch.radiusY || 20;
-            
-            // Calculate average radius
-            let currentRadius = (rX + rY) / 2;
-
-            // On first touch, set baseline to compare against
-            if (e.type === 'touchstart') {
-                baseRadius = currentRadius;
-            }
-
-            // Update visual ring
-            outline2.style.width = `${rX * 2}px`;
-            outline2.style.height = `${rY * 2}px`;
-            outline2.style.left = `${touch.clientX - zone2.getBoundingClientRect().left - rX}px`;
-            outline2.style.top = `${touch.clientY - zone2.getBoundingClientRect().top - rY}px`;
-
-            // Logic: If area grows > 20% of initial, consider it "Heavy"
-            // (Squishing finger increases area)
-            const growthRatio = currentRadius / baseRadius;
-
-            if (growthRatio > 1.2) {
-                status2.innerText = "Heavy Press (Finger Flattened)";
-                status2.style.color = "red";
-            } else {
-                status2.innerText = `Light Touch (${Math.round(currentRadius)}px)`;
-                status2.style.color = "var(--text)";
-            }
+        function setStrategy(num) {
+            activeStrategy = num;
+            document.querySelectorAll('.btn').forEach((b, i) => {
+                b.classList.toggle('active', i + 1 === num);
+            });
+            const names = ["Squish (Finger Flattening)", "Velocity (Calligraphy)", "Ink Flow (Time Held)"];
+            hud.innerHTML = `Mode: ${names[num-1]}<br>Waiting...`;
         }
 
-        zone2.addEventListener('touchstart', handleArea);
-        zone2.addEventListener('touchmove', handleArea);
-        zone2.addEventListener('touchend', () => {
-            outline2.style.width = '0px';
-            outline2.style.height = '0px';
-            status2.innerText = "Released";
-            status2.style.color = "var(--text)";
-        });
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
 
+        // --- MATH HELPERS ---
+        function getDistance(x1, y1, x2, y2) {
+            return Math.hypot(x2 - x1, y2 - y1);
+        }
 
-        // --- Strategy 3: Time Heuristic ---
-        const zone3 = document.getElementById('zone-3');
-        const fill3 = document.getElementById('fill-3');
-        const status3 = document.getElementById('status-3');
-        let timerStart = 0;
-        let timerRef = null;
-        let isHeavy = false;
-
-        zone3.addEventListener('touchstart', (e) => {
+        // --- MAIN DRAWING LOOP ---
+        function handleStart(e) {
             e.preventDefault();
-            timerStart = Date.now();
-            isHeavy = false;
-            status3.innerText = "Charging...";
-            fill3.style.transition = "height 0.5s linear"; // Fill over 500ms
-            fill3.style.height = "100%";
-
-            // Set timeout for "Heavy" state
-            timerRef = setTimeout(() => {
-                isHeavy = true;
-                status3.innerText = "HEAVY PRESS (Long)";
-                status3.style.color = "red";
-                zone3.style.background = "#fee2e2"; // Visual feedback
-            }, 500); // 500ms threshold
-        });
-
-        zone3.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            clearTimeout(timerRef);
+            isDrawing = true;
+            const touch = e.touches ? e.touches[0] : e;
+            lastX = touch.clientX;
+            lastY = touch.clientY;
+            lastTime = Date.now();
+            lastWidth = 5; // Reset width
             
-            fill3.style.transition = "height 0.1s ease-out";
-            fill3.style.height = "0%";
-            zone3.style.background = "#e5e7eb";
+            // Draw a single dot on tap
+            drawStroke(touch, 0); 
+        }
 
-            if (!isHeavy) {
-                status3.innerText = "Light Tap";
-                status3.style.color = "var(--text)";
+        function handleMove(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            const touch = e.touches ? e.touches[0] : e;
+            drawStroke(touch);
+        }
+
+        function handleEnd(e) {
+            isDrawing = false;
+        }
+
+        function drawStroke(touch) {
+            const currentX = touch.clientX;
+            const currentY = touch.clientY;
+            const currentTime = Date.now();
+            const deltaTime = currentTime - lastTime;
+            const dist = getDistance(lastX, lastY, currentX, currentY);
+
+            let calculatedWidth = 5; // Default
+            let debugVal = 0;
+
+            // ==========================================
+            // STRATEGY 1: CONTACT AREA (SQUISH)
+            // ==========================================
+            if (activeStrategy === 1) {
+                // radiusX is standard, webkitRadiusX is older Safari
+                // Fallback to 20 if hardware returns 0
+                let radius = touch.radiusX || touch.webkitRadiusX || 20;
+                
+                // Normalization: Finger radius usually floats between 15px (light) and 40px (heavy)
+                // We map this to a brush size of 2 to 25
+                calculatedWidth = (radius - 10) * 1.5; 
+                calculatedWidth = Math.max(2, Math.min(calculatedWidth, 30)); // Clamp
+                
+                debugVal = radius.toFixed(1) + "px";
             }
-            // If it was heavy, the timeout already updated the text
-        });
+
+            // ==========================================
+            // STRATEGY 2: VELOCITY (CALLIGRAPHY)
+            // ==========================================
+            else if (activeStrategy === 2) {
+                // Velocity = distance / time
+                // Add 1 to time to prevent divide by zero
+                let velocity = dist / (deltaTime + 1); 
+                
+                // Inverse relationship: Fast = Thin, Slow = Thick
+                // Base thick = 20, Min thin = 2
+                calculatedWidth = 25 / (velocity + 0.5);
+                calculatedWidth = Math.max(2, Math.min(calculatedWidth, 25));
+
+                debugVal = velocity.toFixed(2) + " px/ms";
+            }
+
+            // ==========================================
+            // STRATEGY 3: INK FLOW (TIME ACCUMULATION)
+            // ==========================================
+            else if (activeStrategy === 3) {
+                // If moving very slowly or stopped, width grows
+                // If moving fast, width shrinks
+                let speed = dist / (deltaTime + 1);
+                
+                if (speed < 0.5) {
+                    // Growing (Holding still)
+                    lastWidth += 1; 
+                } else {
+                    // Shrinking (Moving)
+                    lastWidth -= 2; 
+                }
+                
+                calculatedWidth = lastWidth;
+                calculatedWidth = Math.max(2, Math.min(calculatedWidth, 40));
+                debugVal = "Flow: " + Math.round(calculatedWidth);
+            }
+
+            // --- SMOOTHING (LERP) ---
+            // Sharp changes in width look ugly. We blend 30% new width with 70% old width.
+            const smoothWidth = lastWidth + (calculatedWidth - lastWidth) * 0.2;
+            lastWidth = smoothWidth;
+
+            // --- DRAWING ---
+            ctx.beginPath();
+            
+            // Using circles for joints creates smoother variable-width lines than lineJoin
+            // Draw a line from last point to current point
+            const angle = Math.atan2(currentY - lastY, currentX - lastX);
+            const perpX = Math.sin(angle);
+            const perpY = Math.cos(angle);
+
+            // This is a simple technique to draw variable width strokes:
+            // Just draw circles at the new point. For high-speed (Strategy 2), 
+            // you might need to fill the gap with a trapezoid, but for simple JS, 
+            // drawing circles closely together works well.
+            
+            ctx.lineWidth = smoothWidth * 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = '#000';
+            
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(currentX, currentY);
+            ctx.stroke();
+
+            // Update State
+            lastX = currentX;
+            lastY = currentY;
+            lastTime = currentTime;
+            
+            hud.innerHTML = `Mode: ${activeStrategy}<br>Val: ${debugVal}<br>Width: ${smoothWidth.toFixed(1)}`;
+        }
+
+        // Event Listeners
+        const zone = document.getElementById('canvas-container');
+        
+        // Touch
+        zone.addEventListener('touchstart', handleStart, {passive: false});
+        zone.addEventListener('touchmove', handleMove, {passive: false});
+        zone.addEventListener('touchend', handleEnd);
+
+        // Mouse (For testing Velocity only - Area/Radius won't work on mouse)
+        zone.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
 
     </script>
 </body>
