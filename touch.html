@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Touch Pressure Strategies</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #f3f4f6;
+            --surface: #ffffff;
+            --text: #1f2937;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Tabs Navigation */
+        .tabs {
+            display: flex;
+            background: var(--surface);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            background: none;
+            font-weight: 600;
+            color: #6b7280;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        /* Content Area */
+        .tab-content {
+            display: none;
+            flex: 1;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            position: relative;
+        }
+        .tab-content.active {
+            display: flex;
+        }
+
+        /* Demo Elements */
+        .target-zone {
+            width: 200px;
+            height: 200px;
+            background: #e5e7eb;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            user-select: none;
+            touch-action: none; /* Critical for JS handling */
+            transition: background 0.1s;
+            box-shadow: inset 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .status-text {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            height: 1.5em;
+        }
+        
+        .sub-text {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 300px;
+        }
+
+        /* Strategy 1: Scale Visualization */
+        #ball-1 {
+            width: 50px;
+            height: 50px;
+            background: var(--primary);
+            border-radius: 50%;
+            transform: scale(1);
+            transition: transform 0.05s linear;
+        }
+
+        /* Strategy 2: Area Visualization */
+        #outline-2 {
+            border: 2px dashed var(--primary);
+            border-radius: 50%;
+            width: 1px;
+            height: 1px;
+            position: absolute;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* Strategy 3: Fill Animation */
+        #fill-3 {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 0%;
+            background: var(--primary);
+            opacity: 0.3;
+            border-radius: 50%;
+            transition: height 0.1s linear;
+            pointer-events: none;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="switchTab(1)">1. Native API</button>
+        <button class="tab-btn" onclick="switchTab(2)">2. Touch Area</button>
+        <button class="tab-btn" onclick="switchTab(3)">3. Time Heuristic</button>
+    </nav>
+
+    <!-- TAB 1: Native Pressure -->
+    <div id="tab-1" class="tab-content active">
+        <div class="sub-text">Requires hardware support (3D Touch / Pen Tablet / Some Androids).</div>
+        <div class="target-zone" id="zone-1">
+            <div id="ball-1"></div>
+        </div>
+        <div class="status-text" id="status-1">Waiting for input...</div>
+    </div>
+
+    <!-- TAB 2: Touch Area -->
+    <div id="tab-2" class="tab-content">
+        <div class="sub-text">Detects "squish". Press flat with your thumb pad vs. tip.</div>
+        <div class="target-zone" id="zone-2">
+            <div id="outline-2"></div>
+            <span style="z-index:2; font-weight:bold; color:#444;">Touch Me</span>
+        </div>
+        <div class="status-text" id="status-2">Radius: 0px</div>
+    </div>
+
+    <!-- TAB 3: Time Based -->
+    <div id="tab-3" class="tab-content">
+        <div class="sub-text">Hold > 500ms for "Heavy". Quick tap for "Light".</div>
+        <div class="target-zone" id="zone-3">
+            <div id="fill-3"></div>
+            <span style="z-index:2; font-weight:bold; color:#444;">Hold Me</span>
+        </div>
+        <div class="status-text" id="status-3">Idle</div>
+    </div>
+
+    <script>
+        // --- Tab Logic ---
+        function switchTab(id) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${id}`).classList.add('active');
+            document.querySelectorAll('.tab-btn')[id-1].classList.add('active');
+        }
+
+        // --- Strategy 1: Native Pressure API ---
+        const zone1 = document.getElementById('zone-1');
+        const ball1 = document.getElementById('ball-1');
+        const status1 = document.getElementById('status-1');
+
+        function handlePressure(e) {
+            e.preventDefault();
+            
+            // 1. Try Pointer Events (Standards Track)
+            let pressure = e.pressure;
+
+            // 2. Fallback for iOS/WebKit "Force Touch" if pointer event pressure is 0 or 0.5 (default mouse)
+            if ((pressure === 0 || pressure === 0.5) && e.touches && e.touches[0]) {
+                if (e.touches[0].force !== undefined) {
+                    pressure = e.touches[0].force;
+                }
+            }
+
+            // Normalization: Some devices return 0.5 constantly if hardware not supported.
+            // We only visualize if we detect meaningful variation or explicit 0-1 range.
+            
+            // Visual Feedback
+            // Scale ball from 1x to 2.5x based on pressure
+            const scale = 1 + (pressure * 1.5);
+            ball1.style.transform = `scale(${scale})`;
+
+            // Text Feedback
+            if (pressure === 0) status1.innerText = "Touch detected (No Force)";
+            else if (pressure < 0.5) status1.innerText = `Light Touch (${pressure.toFixed(2)})`;
+            else status1.innerText = `HEAVY PRESS (${pressure.toFixed(2)})`;
+        }
+
+        zone1.addEventListener('pointerdown', handlePressure);
+        zone1.addEventListener('pointermove', handlePressure);
+        zone1.addEventListener('touchstart', handlePressure); // iOS Fallback
+        zone1.addEventListener('touchmove', handlePressure);  // iOS Fallback
+        
+        zone1.addEventListener('pointerup', () => {
+            ball1.style.transform = 'scale(1)';
+            status1.innerText = "Released";
+        });
+        zone1.addEventListener('touchend', () => {
+            ball1.style.transform = 'scale(1)';
+            status1.innerText = "Released";
+        });
+
+
+        // --- Strategy 2: Contact Area (Radius) ---
+        const zone2 = document.getElementById('zone-2');
+        const outline2 = document.getElementById('outline-2');
+        const status2 = document.getElementById('status-2');
+        let baseRadius = 0;
+
+        function handleArea(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            
+            // Get radius (fallback to standard pixel size if not supported)
+            // radiusX/Y are experimental but widely supported on mobile
+            let rX = touch.radiusX || 20;
+            let rY = touch.radiusY || 20;
+            
+            // Calculate average radius
+            let currentRadius = (rX + rY) / 2;
+
+            // On first touch, set baseline to compare against
+            if (e.type === 'touchstart') {
+                baseRadius = currentRadius;
+            }
+
+            // Update visual ring
+            outline2.style.width = `${rX * 2}px`;
+            outline2.style.height = `${rY * 2}px`;
+            outline2.style.left = `${touch.clientX - zone2.getBoundingClientRect().left - rX}px`;
+            outline2.style.top = `${touch.clientY - zone2.getBoundingClientRect().top - rY}px`;
+
+            // Logic: If area grows > 20% of initial, consider it "Heavy"
+            // (Squishing finger increases area)
+            const growthRatio = currentRadius / baseRadius;
+
+            if (growthRatio > 1.2) {
+                status2.innerText = "Heavy Press (Finger Flattened)";
+                status2.style.color = "red";
+            } else {
+                status2.innerText = `Light Touch (${Math.round(currentRadius)}px)`;
+                status2.style.color = "var(--text)";
+            }
+        }
+
+        zone2.addEventListener('touchstart', handleArea);
+        zone2.addEventListener('touchmove', handleArea);
+        zone2.addEventListener('touchend', () => {
+            outline2.style.width = '0px';
+            outline2.style.height = '0px';
+            status2.innerText = "Released";
+            status2.style.color = "var(--text)";
+        });
+
+
+        // --- Strategy 3: Time Heuristic ---
+        const zone3 = document.getElementById('zone-3');
+        const fill3 = document.getElementById('fill-3');
+        const status3 = document.getElementById('status-3');
+        let timerStart = 0;
+        let timerRef = null;
+        let isHeavy = false;
+
+        zone3.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            timerStart = Date.now();
+            isHeavy = false;
+            status3.innerText = "Charging...";
+            fill3.style.transition = "height 0.5s linear"; // Fill over 500ms
+            fill3.style.height = "100%";
+
+            // Set timeout for "Heavy" state
+            timerRef = setTimeout(() => {
+                isHeavy = true;
+                status3.innerText = "HEAVY PRESS (Long)";
+                status3.style.color = "red";
+                zone3.style.background = "#fee2e2"; // Visual feedback
+            }, 500); // 500ms threshold
+        });
+
+        zone3.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            clearTimeout(timerRef);
+            
+            fill3.style.transition = "height 0.1s ease-out";
+            fill3.style.height = "0%";
+            zone3.style.background = "#e5e7eb";
+
+            if (!isHeavy) {
+                status3.innerText = "Light Tap";
+                status3.style.color = "var(--text)";
+            }
+            // If it was heavy, the timeout already updated the text
+        });
+
+    </script>
+</body>
+</html>
