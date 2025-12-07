@@ -3,51 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Pixel Swarm (Fluid Duel)</title>
+    <title>Drone</title>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- FIX: WebRTC Cleanup Script -->
-    <!-- This must run BEFORE the module script below -->
+    <!-- FIX: WebRTC Cleanup Script (Hybrid Solution) -->
     <script>
         (function() {
-            // Store the original class
+            // 1. A. Wolff's "Memory Pressure" Hack
+            // We expose this so the game can call it when peers leave
+            window.triggerGC = function() {
+                // Source: https://stackoverflow.com/a/66546935 (A. Wolff)
+                queueMicrotask(() => { 
+                    try {
+                        let img = document.createElement("img");
+                        // Create a 50MB buffer to force the browser to wake up the Garbage Collector
+                        img.src = window.URL.createObjectURL(new Blob([new ArrayBuffer(5e+7)])); 
+                        img.onerror = function() {
+                            window.URL.revokeObjectURL(this.src);
+                            img = null;
+                        }
+                    } catch(e) {
+                        console.log("GC Trigger skipped (memory likely full)");
+                    }
+                });
+            };
+
+            // 2. Connection Tracking Wrapper
             const OriginalRTCPeerConnection = window.RTCPeerConnection;
-            
-            // List to track active connections for cleanup on reload
             const activeConnections = new Set();
 
-            // Override the global RTCPeerConnection
             window.RTCPeerConnection = function(...args) {
                 const pc = new OriginalRTCPeerConnection(...args);
-                
-                // Track this connection
                 activeConnections.add(pc);
-
-                // Hook into the close method to ensure cleanup
                 const originalClose = pc.close.bind(pc);
                 pc.close = function() {
-                    if (pc.signalingState !== 'closed') {
-                        originalClose();
-                    }
+                    if (pc.signalingState !== 'closed') originalClose();
                     activeConnections.delete(pc);
                 };
-
                 return pc;
             };
 
-            // Maintain prototype chain so 'instanceof' works
             window.RTCPeerConnection.prototype = OriginalRTCPeerConnection.prototype;
-            
-            // Copy static properties (like .generateCertificate)
             Object.keys(OriginalRTCPeerConnection).forEach(prop => {
                 window.RTCPeerConnection[prop] = OriginalRTCPeerConnection[prop];
             });
 
-            // Force cleanup when you reload the page
+            // Cleanup on tab close
             window.addEventListener('beforeunload', () => {
-                activeConnections.forEach(pc => {
-                    try { pc.close(); } catch(e) {}
-                });
+                activeConnections.forEach(pc => pc.close());
                 activeConnections.clear();
             });
         })();
@@ -678,7 +681,13 @@
         netSendRematch = sendRematch;
 
         room.onPeerJoin(() => { peers++; updateStatus(); });
-        room.onPeerLeave(() => { peers--; updateStatus(); if(peers <= 0) isFighting = false; });
+        room.onPeerLeave(() => { 
+            peers--; 
+            updateStatus(); 
+            if(peers <= 0) isFighting = false; 
+            // Trigger A. Wolff's GC hack when a peer leaves
+            if(window.triggerGC) window.triggerGC();
+        });
 
         getSwarmData((data) => {
             if (!Array.isArray(data) || data.length < 3) return;
@@ -705,6 +714,7 @@
                 // Check if it's a REMATCH or a fresh fight
                 if (fightBtn.innerText === "REMATCH") {
                     respawnSwarm();
+                    if(window.triggerGC) window.triggerGC(); // Clean up before new match
                     netSendRematch('GO');
                     // Force UI update to prevent flicker
                     fightBtn.style.display = 'none';
@@ -724,6 +734,7 @@
 
         getRematch((data) => {
             respawnSwarm();
+            if(window.triggerGC) window.triggerGC(); // Clean up before new match
             isFighting = true;
             // UI will auto-update in animate loop based on counts
         });
