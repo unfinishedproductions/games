@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Minimalist Flight</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
+            font-family: monospace; color: #fff; touch-action: none;
+        }
+        #canvas { display: block; width: 100vw; height: 100vh; }
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+            text-align: center;
+        }
+        @media (orientation: landscape) { #overlay { display: none; } }
+        .rotate-icon {
+            width: 50px; height: 50px; border: 2px solid #fff;
+            border-radius: 8px; animation: rotate 2s infinite ease-in-out;
+            margin-bottom: 20px;
+        }
+        @keyframes rotate {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(-90deg); }
+            100% { transform: rotate(0deg); }
+        }
+        #hud {
+            position: fixed; bottom: 20px; left: 0; width: 100%;
+            display: flex; justify-content: center; pointer-events: none;
+            font-size: 10px; letter-spacing: 3px; opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="overlay">
+        <div class="rotate-icon"></div>
+        <p>ROTATE DEVICE TO FLY</p>
+    </div>
+    <div id="hud">ENGINE RESTORED // SMOOTH SHADING ACTIVE</div>
+
+    <script id="vs" type="x-shader/x-vertex">
+        attribute vec3 position;
+        attribute vec3 normal;
+        uniform mat4 model, view, proj;
+        varying vec3 vNormal, vPos;
+        void main() {
+            vec4 worldPos = model * vec4(position, 1.0);
+            vPos = worldPos.xyz;
+            vNormal = normalize((model * vec4(normal, 0.0)).xyz);
+            gl_Position = proj * view * worldPos;
+        }
+    </script>
+
+    <script id="fs" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec3 vNormal, vPos;
+        uniform vec3 lightPos, color;
+        uniform float isFlame;
+        void main() {
+            if (isFlame > 0.5) {
+                gl_FragColor = vec4(0.4, 0.8, 1.0, 1.0);
+                return;
+            }
+            vec3 n = normalize(vNormal);
+            vec3 l = normalize(lightPos - vPos);
+            float diff = max(dot(n, l), 0.0);
+            float ambient = 0.2;
+            gl_FragColor = vec4(color * (ambient + diff * 0.8), 1.0);
+        }
+    </script>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+
+        const m4 = {
+            identity: () => new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+            perspective: (fovy, aspect, near, far) => {
+                let f = 1.0/Math.tan(fovy/2), nf = 1/(near-far);
+                return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+            },
+            translate: (m, x, y, z) => {
+                m[12] += m[0]*x + m[4]*y + m[8]*z;
+                m[13] += m[1]*x + m[5]*y + m[9]*z;
+                m[14] += m[2]*x + m[6]*y + m[10]*z;
+                m[15] += m[3]*x + m[7]*y + m[11]*z;
+                return m;
+            },
+            scale: (m, x, y, z) => {
+                m[0]*=x; m[1]*=x; m[2]*=x; m[3]*=x;
+                m[4]*=y; m[5]*=y; m[6]*=y; m[7]*=y;
+                m[8]*=z; m[9]*=z; m[10]*=z; m[11]*=z;
+                return m;
+            },
+            rotateX: (m, a) => {
+                let c=Math.cos(a), s=Math.sin(a), m4=m[4], m5=m[5], m6=m[6], m7=m[7], m8=m[8], m9=m[9], m10=m[10], m11=m[11];
+                m[4]=m4*c+m8*s; m[5]=m5*c+m9*s; m[6]=m6*c+m10*s; m[7]=m7*c+m11*s;
+                m[8]=m8*c-m4*s; m[9]=m9*c-m5*s; m[10]=m10*c-m6*s; m[11]=m11*c-m7*s; return m;
+            },
+            rotateY: (m, a) => {
+                let c=Math.cos(a), s=Math.sin(a), m0=m[0], m1=m[1], m2=m[2], m3=m[3], m8=m[8], m9=m[9], m10=m[10], m11=m[11];
+                m[0]=m0*c-m8*s; m[1]=m1*c-m9*s; m[2]=m2*c-m10*s; m[3]=m3*c-m11*s;
+                m[8]=m0*s+m8*c; m[9]=m1*s+m9*c; m[10]=m2*s+m10*c; m[11]=m3*s+m11*c; return m;
+            }
+        };
+
+        function createSphere(r, div) {
+            let p=[], n=[], idx=[];
+            for(let i=0; i<=div; i++) {
+                let th = i*Math.PI/div, st = Math.sin(th), ct = Math.cos(th);
+                for(let j=0; j<=div; j++) {
+                    let ph = j*2*Math.PI/div, x=Math.cos(ph)*st, y=ct, z=Math.sin(ph)*st;
+                    p.push(r*x, r*y, r*z); n.push(x, y, z);
+                }
+            }
+            for(let i=0; i<div; i++) {
+                for(let j=0; j<div; j++) {
+                    let a=(i*(div+1))+j, b=a+div+1;
+                    idx.push(a,b,a+1, b,b+1,a+1);
+                }
+            }
+            return { pos: new Float32Array(p), norm: new Float32Array(n), idx: new Uint16Array(idx) };
+        }
+
+        function createShip() {
+            const pos = new Float32Array([
+                0,0,-1.5, -0.8,0,0.5, 0.8,0,0.5, 0,0,0.1, // Top hull
+                0,0.4,0.4, -0.3,-0.3,0.4, 0.3,-0.3,0.4, 0,0,0.6 // Details
+            ]);
+            const idx = new Uint16Array([
+                0,4,1, 0,2,4, 1,4,3, 2,3,4,
+                0,1,5, 0,6,2, 0,5,6, 5,3,6,
+                1,5,3, 2,6,3
+            ]);
+            const norm = new Float32Array(pos.length);
+            for(let i=0; i<pos.length; i+=3) { norm[i+1] = 0.5; norm[i+2] = -0.5; }
+            return { pos, norm, idx };
+        }
+
+        const prog = gl.createProgram();
+        const vs = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vs, document.getElementById('vs').text); gl.compileShader(vs);
+        const fs = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fs, document.getElementById('fs').text); gl.compileShader(fs);
+        gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); gl.useProgram(prog);
+
+        const attr = { pos: gl.getAttribLocation(prog, 'position'), norm: gl.getAttribLocation(prog, 'normal') };
+        const uni = { model: gl.getUniformLocation(prog, 'model'), view: gl.getUniformLocation(prog, 'view'), proj: gl.getUniformLocation(prog, 'proj'), light: gl.getUniformLocation(prog, 'lightPos'), color: gl.getUniformLocation(prog, 'color'), isFlame: gl.getUniformLocation(prog, 'isFlame') };
+
+        function buf(dat) {
+            const p = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, p); gl.bufferData(gl.ARRAY_BUFFER, dat.pos, gl.STATIC_DRAW);
+            const n = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, n); gl.bufferData(gl.ARRAY_BUFFER, dat.norm, gl.STATIC_DRAW);
+            const i = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, i); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, dat.idx, gl.STATIC_DRAW);
+            return { p, n, i, count: dat.idx.length };
+        }
+
+        const planetG = buf(createSphere(10, 64));
+        const shipG = buf(createShip());
+        const flameG = buf({ pos: new Float32Array([0,0,0, -0.1,0,0.5, 0.1,0,0.5, 0,0.1,0.5]), norm: new Float32Array(12), idx: new Uint16Array([0,1,2, 0,2,3, 0,3,1]) });
+
+        let tiltX = 0, tiltY = 0, curX = 0, curY = 0;
+        let worldX = 0, worldY = 0;
+        let pScale = 0.5; 
+        let boosting = 0, active = false;
+
+        window.addEventListener('deviceorientation', e => {
+            if (!active) return;
+            tiltY = e.gamma * 0.02;
+            tiltX = (e.beta - 45) * 0.02;
+        });
+
+        window.addEventListener('touchstart', e => { 
+            if (e.touches.length >= 2) boosting = 1;
+            active = true;
+        });
+        window.addEventListener('touchend', e => { if (e.touches.length < 2) boosting = 0; });
+
+        function draw(time) {
+            if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+                canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+                gl.viewport(0, 0, canvas.width, canvas.height);
+            }
+
+            gl.clearColor(0, 0, 0.02, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST);
+
+            const aspect = canvas.width/canvas.height;
+            const proj = m4.perspective(Math.PI/4, aspect, 0.1, 1000);
+            const view = m4.translate(m4.identity(), 0, 0, -30);
+
+            gl.uniformMatrix4fv(uni.proj, false, proj);
+            gl.uniformMatrix4fv(uni.view, false, view);
+            gl.uniform3f(uni.light, 50, 50, 100); 
+
+            curX += (tiltX - curX) * 0.1;
+            curY += (tiltY - curY) * 0.1;
+            
+            pScale += boosting ? 0.006 : 0.0015;
+            worldX -= curY * 5.0 * pScale;
+            worldY += curX * 5.0 * pScale;
+
+            // Planet
+            let mPl = m4.identity();
+            m4.translate(mPl, worldX, worldY, -100);
+            m4.scale(mPl, pScale, pScale, pScale);
+            m4.rotateY(mPl, time * 0.0001);
+            gl.uniformMatrix4fv(uni.model, false, mPl);
+            gl.uniform3f(uni.color, 0.1, 0.4, 1.0);
+            gl.uniform1f(uni.isFlame, 0.0);
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, planetG.p);
+            gl.vertexAttribPointer(attr.pos, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(attr.pos);
+            gl.bindBuffer(gl.ARRAY_BUFFER, planetG.n);
+            gl.vertexAttribPointer(attr.norm, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(attr.norm);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, planetG.i);
+            gl.drawElements(gl.TRIANGLES, planetG.count, gl.UNSIGNED_SHORT, 0);
+
+            // Ship
+            let mS = m4.identity();
+            m4.translate(mS, 0, -3, 5);
+            m4.rotateX(mS, -curX * 1.5);
+            m4.rotateY(mS, curY * 1.5);
+            m4.rotateY(mS, -curY * 2.0); // Simple bank
+
+            gl.uniformMatrix4fv(uni.model, false, mS);
+            gl.uniform3f(uni.color, 0.7, 0.7, 0.7);
+            gl.bindBuffer(gl.ARRAY_BUFFER, shipG.p);
+            gl.vertexAttribPointer(attr.pos, 3, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ARRAY_BUFFER, shipG.n);
+            gl.vertexAttribPointer(attr.norm, 3, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shipG.i);
+            gl.drawElements(gl.TRIANGLES, shipG.count, gl.UNSIGNED_SHORT, 0);
+
+            // Flame
+            if (boosting) {
+                gl.uniform1f(uni.isFlame, 1.0);
+                [-0.3, 0.3].forEach(off => {
+                    let mF = new Float32Array(mS);
+                    m4.translate(mF, off, -0.1, 0.5);
+                    m4.scale(mF, 1, 1, 1 + Math.random()*3);
+                    gl.uniformMatrix4fv(uni.model, false, mF);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, flameG.p);
+                    gl.vertexAttribPointer(attr.pos, 3, gl.FLOAT, false, 0, 0);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, flameG.i);
+                    gl.drawElements(gl.TRIANGLES, flameG.count, gl.UNSIGNED_SHORT, 0);
+                });
+            }
+
+            requestAnimationFrame(draw);
+        }
+        requestAnimationFrame(draw);
+    </script>
+</body>
+</html>
+
