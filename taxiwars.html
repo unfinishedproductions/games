@@ -1152,50 +1152,95 @@ function buildTrees(scene,trees){
   scene.add(T,L);PT.blobT=T;PT.blobL=L;PT.trees=trees;}
 // ================= PARK TREES (ez-tree) =================
 // Grant Park's trees are grown by ez-tree (Daniel Greenheck's procedural tree generator, MIT): eight species and seed variants
-// (oaks, ashes, an aspen), each at two levels of detail, in BatchedMeshes - bark, oak leaves, ash leaves: three draw calls for every
-// detailed tree in the park. Up close a tree has its full branching and every leaf card; further off the coarse version (fewer,
-// bigger leaf clusters that read as a soft mass); far away the old low blobs take over. Each tree keeps its own autumn tint (the
-// blob's), size and turn. If ez-tree cannot be loaded the park simply keeps the blobs.
-const PT={trees:null,mats:[],blobT:null,blobL:null,rec:[],BB:null,LBM:null,gB:null,gL:null,time:{value:0},t:0,ok:false},ZERO_T=new THREE.Matrix4().makeScale(0,0,0);
+// (oaks, ashes, an aspen). Each variant is grown once and all four of its levels of detail are cut from that one tree, so a tree
+// keeps its outline at every distance: the whole tree up close; then without its finest twigs and with a third of its leaf cards
+// (each one bigger, so the crown stays as full); then trunk and main limbs with an eighth; far off the trunk with a twentieth.
+// A tree that changes level cross-fades over PT_FADE seconds: both versions are drawn, each in its own half of a screen-door
+// dither, so the finer one grows in pixel by pixel instead of popping. BatchedMeshes hold them (bark, oak leaves, ash leaves:
+// three draw calls for the park, two copies of every tree for the fades). Each tree keeps its own autumn tint, size and turn.
+// If ez-tree cannot be loaded the park keeps the simple blob trees.
+const PT={trees:null,mats:[],blobT:null,blobL:null,rec:[],fading:[],BB:null,LBM:null,gB:null,gL:null,time:{value:0},t:0,snap:true,ok:false};
+// level-of-detail distances in metres (a tree turns finer inside one, coarser 4 m beyond it), the share of leaf cards each level
+// keeps, and the fade's length in seconds
+const PT_LOD=[32,100,240],PT_LEAVES=[1,1/3,1/8,1/20],PT_FADE=1.4;
+// how much of one copy shows is its instance colour's alpha: 1 (or -1) all of it; +a the part of the dither below a, -a the part
+// above 1-a (the copy fading out takes the pixels the one fading in has not, so between them the tree is always whole)
+const TREE_FADE_GLSL=`#if defined( USE_COLOR_ALPHA )
+  diffuseColor.rgb*=vColor.rgb;
+  {float a=vColor.a;if(abs(a)<.999){float d=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))));if((a<0.?1.-d:d)>=abs(a))discard;}}
+#elif defined( USE_COLOR )
+  diffuseColor.rgb*=vColor;
+#endif`;
 // leaves: the leaf card's texture as brightness, coloured by the tree's own tint (BatchedMesh colour), fluttering a little in the
 // wind (moved before projection, so the batching still places every tree)
 function leafMaterial(tex){const m=new THREE.MeshStandardMaterial({map:tex,alphaTest:.45,side:THREE.DoubleSide,roughness:.85,metalness:0,alphaToCoverage:true});
   m.onBeforeCompile=sh=>{sh.uniforms.uTime=PT.time;
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uTime;').replace('#include <begin_vertex>','#include <begin_vertex>\n{float ph=dot(position,vec3(.37,.21,.53))*3.;transformed+=vec3(sin(uTime*1.7+ph),.3*sin(uTime*2.3+ph*1.7),cos(uTime*1.3+ph*1.3))*uv.y*.045;}');
-    sh.fragmentShader=sh.fragmentShader.replace('#include <map_fragment>','vec4 sampledDiffuseColor=texture2D(map,vMapUv);diffuseColor.rgb*=vec3(dot(sampledDiffuseColor.rgb,vec3(.3,.59,.11))*2.1);diffuseColor.a*=sampledDiffuseColor.a;');};
+    sh.fragmentShader=sh.fragmentShader.replace('#include <map_fragment>','vec4 sampledDiffuseColor=texture2D(map,vMapUv);diffuseColor.rgb*=vec3(dot(sampledDiffuseColor.rgb,vec3(.3,.59,.11))*2.1);diffuseColor.a*=sampledDiffuseColor.a;')
+      .replace('#include <color_fragment>',TREE_FADE_GLSL);};
   m.customProgramCacheKey=()=>'twLeaf';return m;}
+function barkMaterial(src){const m=new THREE.MeshStandardMaterial({map:src.map,normalMap:src.normalMap,aoMap:src.aoMap,roughnessMap:src.roughnessMap,roughness:1,metalness:0});
+  m.onBeforeCompile=sh=>{sh.fragmentShader=sh.fragmentShader.replace('#include <color_fragment>',TREE_FADE_GLSL);};m.customProgramCacheKey=()=>'twBark';return m;}
+// grow one tree, noting where each branch (with its level) and each leaf card start in the arrays ez-tree fills. It grows the
+// branches breadth-first, a level at a time, so the trunk and the coarser levels are a prefix of the branch arrays.
+function growTree(EZ,name,seed,leaf){const o=structuredClone(EZ.TreePreset[name]);o.seed=seed;o.leaves.type=leaf;
+  const t=new EZ.Tree(),br=[],lf=[],gb=t.generateBranch,gl=t.generateLeaf;
+  t.generateBranch=function(b){br.push([b.level,this.branches.verts.length/3,this.branches.indices.length]);return gb.call(this,b);};
+  t.generateLeaf=function(p,q){lf.push([this.leaves.verts.length/3,this.leaves.indices.length]);return gl.call(this,p,q);};
+  t.loadFromJson(o);return{t,br,lf,levels:o.branch.levels};}
+// the branches up to level maxL
+function branchLOD(G,br,maxL){let nv=G.attributes.position.count,ni=G.index.count;for(const [lv,v0,i0] of br)if(lv>maxL){nv=v0;ni=i0;break;}
+  const g=new THREE.BufferGeometry();for(const k of ['position','normal','uv']){const a=G.attributes[k];g.setAttribute(k,new THREE.BufferAttribute(a.array.slice(0,nv*a.itemSize),a.itemSize));}
+  g.setIndex(new THREE.BufferAttribute(G.index.array.slice(0,ni),1));return g;}
+// a share of the leaf cards, each scaled about its middle by s. The pick hashes the card's number, so every card of a coarser
+// level is also in all the finer ones.
+function leafLOD(G,lf,keep,s){const P=G.attributes.position.array,N=G.attributes.normal.array,U=G.attributes.uv.array,I=G.index.array,nv=G.attributes.position.count;
+  const p=[],n=[],u=[],ix=[];
+  for(let j=0;j<lf.length;j++){if(hash2(j*7+1,j*3+5)>=keep)continue;const [v0,i0]=lf[j],last=j+1===lf.length,v1=last?nv:lf[j+1][0],i1=last?I.length:lf[j+1][1],base=p.length/3;
+    let cx=0,cy=0,cz=0;for(let v=v0;v<v1;v++){cx+=P[v*3];cy+=P[v*3+1];cz+=P[v*3+2];}cx/=v1-v0;cy/=v1-v0;cz/=v1-v0;
+    for(let v=v0;v<v1;v++){p.push(cx+(P[v*3]-cx)*s,cy+(P[v*3+1]-cy)*s,cz+(P[v*3+2]-cz)*s);n.push(N[v*3],N[v*3+1],N[v*3+2]);u.push(U[v*2],U[v*2+1]);}
+    for(let i=i0;i<i1;i++)ix.push(I[i]-v0+base);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(n,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(u,2));
+  g.setIndex(ix);return g;}
 async function buildParkTrees(){if(!PT.trees||!PT.trees.length)return;
   const EZ=await Promise.race([window.EZTREE_READY||Promise.resolve(null),new Promise(r=>setTimeout(()=>r(null),9000))]);if(!EZ||!EZ.Tree||!EZ.TreePreset)return;
   // [preset, seed, leaf texture, height in metres]
   const VARS=[['Oak Large',11,'oak',13.5],['Oak Large',13,'oak',12.5],['Oak Medium',21,'oak',10.5],['Oak Large',37,'oak',14.5],['Ash Large',5,'ash',14],['Ash Medium',17,'ash',11.5],['Aspen Medium',29,'ash',13],['Ash Large',43,'ash',15]];
-  const gen=(name,seed,leaf,lo)=>{const o=structuredClone(EZ.TreePreset[name]);o.seed=seed;o.leaves.type=leaf;
-    if(lo){o.leaves.count=Math.max(2,Math.round(o.leaves.count*.35));o.leaves.size*=1.7;for(const k in o.branch.sections)o.branch.sections[k]=Math.max(2,Math.round(o.branch.sections[k]*.55));for(const k in o.branch.segments)o.branch.segments[k]=Math.max(3,Math.round(o.branch.segments[k]*.6));}
-    const t=new EZ.Tree();t.loadFromJson(o);return t;};
   const parts=[],leafTex={};let barkSrc=null;
-  try{for(let v=0;v<VARS.length;v++){const [name,seed,leaf,H]=VARS[v];parts[v]=[];let k=1;
-    for(const lo of [0,1]){const t=gen(name,seed,leaf,lo),b=t.branchesMesh.geometry,l=t.leavesMesh.geometry;
-      if(!lo){const bx=new THREE.Box3().setFromBufferAttribute(b.attributes.position);k=H/Math.max(.001,bx.max.y-bx.min.y);}
-      b.scale(k,k,k);l.scale(k,k,k);parts[v][lo]={b,l,leaf};if(!barkSrc)barkSrc=t.branchesMesh.material;leafTex[leaf]=t.leavesMesh.material.map;await nextFrame();}}}
+  try{for(let v=0;v<VARS.length;v++){const [name,seed,leaf,H]=VARS[v],T=growTree(EZ,name,seed,leaf),b=T.t.branchesMesh.geometry,l=T.t.leavesMesh.geometry,L=T.levels;
+      const bx=new THREE.Box3().setFromBufferAttribute(b.attributes.position),k=H/Math.max(.001,bx.max.y-bx.min.y);b.scale(k,k,k);l.scale(k,k,k);
+      parts[v]={leaf,b:[b,branchLOD(b,T.br,L-1),branchLOD(b,T.br,Math.min(1,L-1)),branchLOD(b,T.br,0)],l:PT_LEAVES.map(q=>q===1?l:leafLOD(l,T.lf,q,Math.sqrt(1/q)))};
+      if(!barkSrc)barkSrc=T.t.branchesMesh.material;leafTex[leaf]=T.t.leavesMesh.material.map;await nextFrame();}}
   catch(e){console.warn('ez-tree: the park keeps its simple trees',e);return;}
-  const sum=sel=>{let nv=0,ni=0;for(const P of parts)for(const L of P){const g=sel(L);if(!g)continue;nv+=g.attributes.position.count;ni+=g.index.count;}return [nv,ni];};
-  const n=PT.trees.length,[bv,bi]=sum(L=>L.b);
-  const bark=new THREE.MeshStandardMaterial({map:barkSrc.map,normalMap:barkSrc.normalMap,aoMap:barkSrc.aoMap,roughnessMap:barkSrc.roughnessMap,roughness:1,metalness:0});
-  const BB=new THREE.BatchedMesh(n,bv,bi,bark);BB.castShadow=BB.receiveShadow=true;BB.frustumCulled=false;BB.sortObjects=false;const LBM={};
-  for(const leaf of ['oak','ash']){const [lv,li]=sum(L=>L.leaf===leaf?L.l:null);if(!lv)continue;const B=new THREE.BatchedMesh(n,lv,li,leafMaterial(leafTex[leaf]));B.castShadow=B.receiveShadow=true;B.frustumCulled=false;B.sortObjects=false;LBM[leaf]=B;}
-  const gB=[],gL=[];for(let v=0;v<parts.length;v++){gB[v]=[];gL[v]=[];for(const lo of [0,1]){const L=parts[v][lo];gB[v][lo]=BB.addGeometry(L.b);gL[v][lo]=LBM[L.leaf].addGeometry(L.l);}}
+  const n=PT.trees.length,count=gs=>gs.reduce((s,g)=>[s[0]+g.attributes.position.count,s[1]+g.index.count],[0,0]),[bv,bi]=count(parts.flatMap(P=>P.b));
+  const BB=new THREE.BatchedMesh(n*2,bv,bi,barkMaterial(barkSrc));BB.castShadow=BB.receiveShadow=true;BB.frustumCulled=false;BB.sortObjects=false;const LBM={};
+  for(const leaf of ['oak','ash']){const gs=parts.filter(P=>P.leaf===leaf).flatMap(P=>P.l);if(!gs.length)continue;const [lv,li]=count(gs);
+    const B=new THREE.BatchedMesh(n*2,lv,li,leafMaterial(leafTex[leaf]));B.castShadow=B.receiveShadow=true;B.frustumCulled=false;B.sortObjects=false;LBM[leaf]=B;}
+  const gB=parts.map(P=>P.b.map(g=>BB.addGeometry(g))),gL=parts.map(P=>P.l.map(g=>LBM[P.leaf].addGeometry(g)));Object.assign(PT,{BB,LBM,gB,gL});
+  // two copies of every tree (the second one only shows while the tree fades from one level to another); they start coarsest
   const col=new THREE.Color();
-  PT.trees.forEach((tr,i)=>{const v=Math.floor(hash2(i*13+7,i*31+3)*parts.length)%parts.length,leaf=parts[v][0].leaf,LB=LBM[leaf];
-    const idB=BB.addInstance(gB[v][1]),idL=LB.addInstance(gL[v][1]);BB.setMatrixAt(idB,PT.mats[i]);LB.setMatrixAt(idL,PT.mats[i]);
-    PT.blobL.getColorAt(i,col);LB.setColorAt(idL,col.clone().multiplyScalar(1.15));BB.setColorAt(idB,col.setScalar(rnd(.78,1.05)));BB.setVisibleAt(idB,false);LB.setVisibleAt(idL,false);
-    PT.rec.push({i,v,leaf,idB,idL,lod:2});});
-  scene.add(BB,...Object.values(LBM));Object.assign(PT,{BB,LBM,gB,gL,ok:true});}
-// every third of a second: each tree takes the detail its distance calls for (full within 30 m, coarse to 95 m, the blob beyond)
-function updateParkTrees(dt,cx,cz){if(!PT.ok)return;PT.time.value+=dt;PT.t-=dt;if(PT.t>0)return;PT.t=.33;const T=PT.blobT,L=PT.blobL;let dirty=false;
-  for(const r of PT.rec){const tr=PT.trees[r.i],d=Math.hypot(tr[0]-cx,tr[1]-cz),want=d<(r.lod===0?33:30)?0:d<(r.lod<=1?100:95)?1:2;if(want===r.lod)continue;const LB=PT.LBM[r.leaf];
-    if(want===2){PT.BB.setVisibleAt(r.idB,false);LB.setVisibleAt(r.idL,false);T.setMatrixAt(r.i,PT.mats[r.i]);L.setMatrixAt(r.i,PT.mats[r.i]);}
-    else{PT.BB.setGeometryIdAt(r.idB,PT.gB[r.v][want]);LB.setGeometryIdAt(r.idL,PT.gL[r.v][want]);PT.BB.setVisibleAt(r.idB,true);LB.setVisibleAt(r.idL,true);if(r.lod===2){T.setMatrixAt(r.i,ZERO_T);L.setMatrixAt(r.i,ZERO_T);}}
-    r.lod=want;dirty=true;}
-  if(dirty){T.instanceMatrix.needsUpdate=true;L.instanceMatrix.needsUpdate=true;}}
+  PT.trees.forEach((tr,i)=>{const v=Math.floor(hash2(i*13+7,i*31+3)*parts.length)%parts.length,leaf=parts[v].leaf,LB=LBM[leaf],s=[];
+    for(let k=0;k<2;k++){const idB=BB.addInstance(gB[v][3]),idL=LB.addInstance(gL[v][3]);BB.setMatrixAt(idB,PT.mats[i]);LB.setMatrixAt(idL,PT.mats[i]);s.push([idB,idL]);}
+    PT.blobL.getColorAt(i,col);const r={i,v,leaf,s,cur:0,lod:3,to:-1,fade:0,tint:col.clone().multiplyScalar(1.15),b:rnd(.78,1.05)};
+    ptColor(r,0,1);ptColor(r,1,1);ptShow(r,1,-1);PT.rec.push(r);});
+  PT.blobT.visible=PT.blobL.visible=false;
+  scene.add(BB,...Object.values(LBM));Object.assign(PT,{snap:true,ok:true});}
+// one copy's colour (bark brightness, leaf tint) and how much of it shows; its geometry (lod -1: hidden)
+const _c4=new THREE.Vector4();
+function ptColor(r,k,a){const [idB,idL]=r.s[k];PT.BB.setColorAt(idB,_c4.set(r.b,r.b,r.b,a));PT.LBM[r.leaf].setColorAt(idL,_c4.set(r.tint.r,r.tint.g,r.tint.b,a));}
+function ptShow(r,k,lod){const [idB,idL]=r.s[k],LB=PT.LBM[r.leaf],on=lod>=0;if(on){PT.BB.setGeometryIdAt(idB,PT.gB[r.v][lod]);LB.setGeometryIdAt(idL,PT.gL[r.v][lod]);}PT.BB.setVisibleAt(idB,on);LB.setVisibleAt(idL,on);}
+function ptEndFade(r){ptShow(r,r.cur,-1);r.cur=1-r.cur;ptColor(r,r.cur,1);r.lod=r.to;r.to=-1;}
+// the level a tree d metres away wants, given the one it has
+function ptWant(cur,d){let w=0;while(w<3&&d>=PT_LOD[w]+(cur<=w?4:0))w++;return w;}
+// every frame the fades move on; every third of a second each tree picks its level (at once, without fades, after a jump: PT.snap)
+function updateParkTrees(dt,cam){if(!PT.ok)return;PT.time.value+=dt;
+  for(let k=PT.fading.length-1;k>=0;k--){const r=PT.fading[k];r.fade+=dt/PT_FADE;if(r.fade>=1){ptEndFade(r);PT.fading.splice(k,1);continue;}
+    const f=sstep(0,1,r.fade);ptColor(r,1-r.cur,Math.max(.002,f));ptColor(r,r.cur,-Math.max(.002,1-f));}
+  PT.t-=dt;if(PT.t>0&&!PT.snap)return;PT.t=.33;const snap=PT.snap;PT.snap=false;
+  if(snap){for(const r of PT.fading)ptEndFade(r);PT.fading.length=0;}
+  for(const r of PT.rec){if(r.to>=0)continue;const tr=PT.trees[r.i],want=ptWant(r.lod,Math.hypot(tr[0]-cam.x,CURB+6-cam.y,tr[1]-cam.z));if(want===r.lod)continue;
+    if(snap){ptShow(r,r.cur,want);r.lod=want;continue;}
+    const k=1-r.cur;ptShow(r,k,want);ptColor(r,k,.002);ptColor(r,r.cur,-1);r.to=want;r.fade=0;PT.fading.push(r);}}
 // ================= WATER =================
 const RIP={N:128,cell:.42,x0:0,z0:0,h0:null,h1:null,tex:null,data:null,acc:0,active:false,cx:1e9,cz:1e9};
 const WUNI={uTime:{value:0},uRefl:{value:null},uReflOn:{value:0},uRip:{value:null},uRipRect:{value:new THREE.Vector4(0,0,1,1.4)},uSunDir:{value:new THREE.Vector3(0,1,0)},uSunCol:{value:new THREE.Color(1,1,1)},
@@ -4924,7 +4969,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   if(!P.h.ragdoll)P.h.update(dt);
   updateReins();
   // props, market, debris, water
-  if(!AER.on){updateStalls(dt,px,pz);updateFruit(dt,P);updateActivities(dt,px,pz);}const ds=Math.ceil(dt/.011);for(const d of DEBRIS)if(Math.abs(d.pos.x-px)<150&&Math.abs(d.pos.z-pz)<150)for(let i=0;i<ds;i++)d.step(dt/ds);updateJets(dt);updateStreetProps(dt,px,pz);cdebUpdate(dt);updateParkTrees(dt,camera.position.x,camera.position.z);
+  if(!AER.on){updateStalls(dt,px,pz);updateFruit(dt,P);updateActivities(dt,px,pz);}const ds=Math.ceil(dt/.011);for(const d of DEBRIS)if(Math.abs(d.pos.x-px)<150&&Math.abs(d.pos.z-pz)<150)for(let i=0;i<ds;i++)d.step(dt/ds);updateJets(dt);updateStreetProps(dt,px,pz);cdebUpdate(dt);updateParkTrees(dt,camera.position);
   WUNI.uTime.value+=dt;updateRipples(dt,px,pz);
   // time of day, city
   const S=updateSky(dt,px,pz,camera);updateFountain(dt,px,pz,S.night);updateWorld2(dt,px,pz,S);DROPS.update(dt,dropLand);PUFFS.update(dt);SPARKS.update(dt,sparkLand);updateShards(dt);updateSkid(dt);updateLoose(dt,px,pz);
