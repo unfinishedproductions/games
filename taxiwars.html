@@ -5800,7 +5800,8 @@ window.EZTREE_READY=import('ez-tree').then(m=>(window.EZTREE=m)).catch(e=>{conso
 window.TW_ARTIFACT_URL='https://claude.ai/artifact/G7jt8pZXW9oXKsxFACmAE5';
 // The game's source is the page's own twGame script (the single-file taxiwars.html) or, on claude.ai, the artifact's game.js.
 // The copy the Claude editor kept in this browser after live edits runs instead when it was made on that same source, or on one
-// this page saved since (its bases) - not when it failed to start last time in this tab, and not with ?safe in the address.
+// this page saved since (its bases) - not when it failed to start last time in this tab, and not with #safe (or ?safe) at the
+// end of the address (a claude.ai artifact passes only a #anchor on to the page).
 const TW_DB=window.TW_DB=(()=>{let dbp=null;
   const open=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open('taxiwars-claude',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);}));
   const tx=(mode,fn)=>open().then(db=>new Promise((res,rej)=>{const t=db.transaction('kv',mode),q=fn(t.objectStore('kv'));t.oncomplete=()=>res(q.result);t.onerror=t.onabort=()=>rej(t.error);}));
@@ -5813,7 +5814,7 @@ if(ship===null){try{const r=await fetch('game.js',{cache:'no-cache'});if(!r.ok)t
 const SRCI=window.TW_SRC={base:hashText(ship),shipped:ship,text:ship,edited:false,skipped:null,saved:null};
 try{SRCI.saved=await Promise.race([TW_DB.get('source'),new Promise(r=>setTimeout(()=>r(null),1500))])||null;}catch(e){SRCI.saved=null;}
 const sv=SRCI.saved;let flagged=false;
-if(sv&&sv.text&&sv.text!==ship){if(!(sv.bases||[sv.base]).includes(SRCI.base))SRCI.skipped='stale';else if(/[?&]safe\b/.test(location.search))SRCI.skipped='safe';else if(ss.get('twe.boot')==='edited')SRCI.skipped='crashed';
+if(sv&&sv.text&&sv.text!==ship){if(!(sv.bases||[sv.base]).includes(SRCI.base))SRCI.skipped='stale';else if(/[?&]safe\b/.test(location.search)||location.hash==='#safe')SRCI.skipped='safe';else if(ss.get('twe.boot')==='edited')SRCI.skipped='crashed';
   else{SRCI.text=sv.text;SRCI.edited=true;ss.set('twe.boot','edited');flagged=ss.get('twe.boot')==='edited';addEventListener('tw-city-ready',()=>ss.del('twe.boot'),{once:true});}}
 // Run it as a classic script, so its top-level names are the page's globals (the editor swaps functions in the same way): inline,
 // or from a blob: URL where the page's security policy refuses inline scripts. The flag at its end tells a refused script (which
