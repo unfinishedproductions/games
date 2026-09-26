@@ -201,7 +201,8 @@ const TW_WALKDATA={"fps":30,"joints":["Hips","Spine1","Neck","Head","HeadTop_End
 'use strict';
 // ================= CORE =================
 const TAU=Math.PI*2,clamp=(v,a,b)=>v<a?a:v>b?b:v,lerp=(a,b,t)=>a+(b-a)*t,sstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
-function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+// r.seed() reads the generator's state and r.seed(s) rewinds it (the Claude editor replays a builder from the seed it first ran with)
+function mulberry32(a){const r=function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};r.seed=v=>v===undefined?a:(a=v|0);return r;}
 let rand=mulberry32(1928);
 const rnd=(a=0,b=1)=>a+(b-a)*rand(),rndi=(a,b)=>Math.floor(a+(b-a+1)*rand()),pick=a=>a[Math.floor(rand()*a.length)],chance=p=>rand()<p;
 function hash2(x,y){let h=(Math.imul(x|0,374761393)+Math.imul(y|0,668265263))|0;h=Math.imul(h^(h>>>13),1274126177);return((h^(h>>>16))>>>0)/4294967296;}
@@ -457,16 +458,68 @@ function streetNameAt(x,z){let best=null,bd=1e9,second=null;for(const s of NS){i
   if(bd<d2)return[best,b2,bd,d2];return[b2,best,d2,bd];}
 function districtAt(x,z){if(x>LAKE_X)return'Lake Michigan';if(inRiver(x,z)&&!onBridge(x,z))return'Chicago River';if(x>=SHORE.slope)return'Lakefront Boardwalk';if(z<(rivN(x)+rivS(x))/2)return x>290?'Streeterville':'Near North Side';if(x>TRENCH.x0&&x<TRENCH.x1&&z>RAIL.z1)return'Illinois Central Cut';if(x>PARK.x0&&z>PARK.z0)return x>LAKE_X?'Lake Michigan':'Grant Park';if(x>330)return'Illinois Central Yards';if(Math.abs(z+230)<14&&x>-110&&x<110)return'Randolph Street Market';return'The Loop';}
 
+// ================= SOURCE SCOPES (for the in-game Claude editor: menu > Developer > Claude) =================
+// Every world builder runs inside a scope (srcScope / srcRun) that records what it made: the vertex ranges it wrote into the
+// chunk buckets, the colliders it added, the objects it put in the scene and the random seed it started from; srcMark(name)
+// splits a builder into named parts (a landmark, a station). The editor uses the scopes to name what you tap, to point Claude
+// at the code that built it, and to rebuild one scope live after an edit: its old vertices collapse, its colliders and scene
+// objects go, and the builder runs again from the same seed into world-space meshes of its own (the next reload bakes the new
+// code into the chunks as usual).
+const SRC={stack:[],roots:[],byId:new Map(),obj:new WeakMap(),seq:0,bk:null};
+function srcBegin(name,o={}){const parent=o.parent!==undefined?o.parent:(SRC.stack[SRC.stack.length-1]||null);
+  const s={id:++SRC.seq,name,fn:o.fn||null,args:o.args||null,info:o.info||null,mark:!!o.mark,parent,kids:[],touch:new Map(),ranges:[],cols:[],objs:[],pieces:[],
+    seed:rand.seed(),n0:scene.children.length,box:null,live:null,dead:false};
+  (parent?parent.kids:SRC.roots).push(s);SRC.byId.set(s.id,s);SRC.stack.push(s);return s;}
+function srcTouch(g){for(const s of SRC.stack)if(!s.touch.has(g))s.touch.set(g,[g.vc,g.i.length]);}
+// close s and any parts still open inside it
+function srcEnd(s){while(SRC.stack.length){const t=SRC.stack.pop();srcClose(t);if(t===s)break;}}
+// a closed scope keeps its vertex ranges (bucket, first vertex, count, first index, index count), its box and its scene objects
+function srcClose(s){const b=new THREE.Box3();
+  for(const [g,[v0,i0]] of s.touch){const n=g.vc-v0;if(n<=0)continue;s.ranges.push({g,v0,n,i0,ni:g.i.length-i0});const p=g.p;
+    for(let i=v0*3,e=g.vc*3;i<e;i+=3){const x=p[i],y=p[i+1],z=p[i+2];if(x<b.min.x)b.min.x=x;if(x>b.max.x)b.max.x=x;if(y<b.min.y)b.min.y=y;if(y>b.max.y)b.max.y=y;if(z<b.min.z)b.min.z=z;if(z>b.max.z)b.max.z=z;}}
+  s.touch=null;const ch=scene.children;
+  for(let i=s.n0;i<ch.length;i++){const o=ch[i];if(SRC.obj.has(o))continue;SRC.obj.set(o,s);s.objs.push(o);b.expandByObject(o);}
+  for(const k of s.kids)if(k.box)b.union(k.box);
+  s.box=b.isEmpty()?null:b;}
+function srcScope(fn,...args){return srcRun(null,fn,...args);}
+function srcRun(info,fn,...args){const s=srcBegin(fn.name,{fn:fn.name,args,info});let r;
+  try{r=fn(...args);}catch(e){srcEnd(s);throw e;}
+  if(r&&typeof r.then==='function')return r.finally(()=>srcEnd(s));srcEnd(s);return r;}
+function srcMark(name){const t=SRC.stack[SRC.stack.length-1];if(!t)return;if(t.mark)srcEnd(t);srcBegin(name,{mark:true});}
+// take a scope out of the world: collapse its vertices, drop its colliders, scene objects and live meshes (and its parts')
+function srcHide(s){s.dead=true;
+  for(const r of s.ranges){const m=r.g.mesh;if(!m)continue;const pa=m.geometry.attributes.position,a=pa.array,o=r.v0*3,n=r.n*3,x=a[o],y=a[o+1],z=a[o+2];
+    for(let i=3;i<n;i+=3){a[o+i]=x;a[o+i+1]=y;a[o+i+2]=z;}pa.addUpdateRange(o,n);pa.needsUpdate=true;}
+  for(const c of s.cols)if(!c.dead)removeCol(c);for(const o of s.objs)o.removeFromParent();for(const p of s.pieces)p.dead=true;
+  if(s.live){s.live.removeFromParent();s.live.traverse(o=>{if(o.geometry)o.geometry.dispose();});s.live=null;}
+  for(const k of s.kids)srcHide(k);}
+// run a scope's builder again with the code as it is now (the nearest enclosing scope that has a builder), from its first seed;
+// the new scope takes the old one's place in the tree
+async function srcRebuild(s){while(s&&!s.fn)s=s.parent;if(!s)throw new Error('nothing here can be rebuilt on its own');
+  const fn=window[s.fn];if(typeof fn!=='function')throw new Error(s.fn+' is not a top-level function');
+  srcHide(s);const prevBK=BKOV,prevSeed=rand.seed(),bk=SRC.bk={};BKOV=bk;rand.seed(s.seed);
+  const n=srcBegin(s.name,{fn:s.fn,args:s.args,info:s.info,parent:s.parent}),list=s.parent?s.parent.kids:SRC.roots;
+  // a builder that throws takes back what it made; the old scope stays in the tree, hidden, to be rebuilt once the code is fixed
+  try{await fn(...(s.args||[]));}catch(e){srcEnd(n);BKOV=prevBK;SRC.bk=null;rand.seed(prevSeed);srcHide(n);list.splice(list.indexOf(n),1);SRC.byId.delete(n.id);s.dead=false;s.failed=true;throw e;}
+  srcEnd(n);BKOV=prevBK;SRC.bk=null;rand.seed(prevSeed);
+  list.splice(list.indexOf(n),1);list.splice(list.indexOf(s),1,n);
+  const grp=new THREE.Group();grp.name='Rebuilt: '+s.name;SRC.obj.set(grp,n);
+  for(const mk in bk){const g=bk[mk];if(!g.vc)continue;const m=new THREE.Mesh(geoFromBucket(g),MATS[mk]);m.name=mk;const cfg=MCFG[mk];m.castShadow=cfg?cfg.cast:true;m.receiveShadow=cfg?cfg.recv:true;
+    m.matrixAutoUpdate=false;g.mesh=m;g.p=g.n=g.u=g.c=g.e=g.i=null;grp.add(m);}
+  scene.add(grp);n.live=grp;return n;}
+
 // ================= GEOMETRY BUCKETS =================
 const CHUNK=240,BK={};let BKOV=null;
 let BKREMAP=null,PTRACK=null,CITY_BAKED=false;
-function bucket(mk,x,z){if(BKOV){if(BKREMAP&&BKREMAP[mk])mk=BKREMAP[mk];let g=BKOV[mk];if(!g)g=BKOV[mk]={p:[],n:[],u:[],c:[],e:[],i:[],vc:0};return g;}let b=BK[mk];if(!b)b=BK[mk]=new Map();const ck=Math.floor(x/CHUNK)+'|'+Math.floor(z/CHUNK);let g=b.get(ck);if(!g){g={p:[],n:[],u:[],c:[],e:[],i:[],vc:0};b.set(ck,g);}if(PTRACK&&!PTRACK.has(g))PTRACK.set(g,g.vc);return g;}
+function bucket(mk,x,z){if(BKOV){if(BKREMAP&&BKREMAP[mk])mk=BKREMAP[mk];let g=BKOV[mk];if(!g)g=BKOV[mk]={p:[],n:[],u:[],c:[],e:[],i:[],vc:0};
+  if(BKOV===SRC.bk){if(PTRACK&&!PTRACK.has(g))PTRACK.set(g,g.vc);if(SRC.stack.length)srcTouch(g);}return g;}// (a live rebuild's buckets are world space, like the chunks)
+  let b=BK[mk];if(!b)b=BK[mk]=new Map();const ck=Math.floor(x/CHUNK)+'|'+Math.floor(z/CHUNK);let g=b.get(ck);if(!g){g={p:[],n:[],u:[],c:[],e:[],i:[],vc:0};b.set(ck,g);}if(PTRACK&&!PTRACK.has(g))PTRACK.set(g,g.vc);if(SRC.stack.length)srcTouch(g);return g;}
 // pieces of the baked city that can be taken out and put back (knocked-over props, smashed stalls): trackBegin/trackEnd record the
 // vertex ranges a build writes into the chunk buckets; once the chunks are meshes, pieceShow(ranges,false) collapses those vertices
 // (a sub-range upload) and pieceShow(ranges,true) puts them back
 function trackBegin(){PTRACK=new Map();}
-function trackEnd(){const out=[];for(const [g,v0] of PTRACK)if(g.vc>v0)out.push({g,v0,n:g.vc-v0,save:null});PTRACK=null;return out;}
-function pieceShow(R,on){for(const r of R){const m=r.g.mesh;if(!m)continue;const pa=m.geometry.attributes.position,a=pa.array,o=r.v0*3,n=r.n*3;
+function trackEnd(){const out=[];for(const [g,v0] of PTRACK)if(g.vc>v0)out.push({g,v0,n:g.vc-v0,save:null});PTRACK=null;if(SRC.stack.length)SRC.stack[SRC.stack.length-1].pieces.push(...out);return out;}
+function pieceShow(R,on){for(const r of R){const m=r.g.mesh;if(!m||r.dead)continue;/* (dead: its scope was rebuilt, so it never comes back) */const pa=m.geometry.attributes.position,a=pa.array,o=r.v0*3,n=r.n*3;
   if(on){if(!r.save)continue;a.set(r.save,o);}else{if(!r.save)r.save=a.slice(o,o+n);const x=a[o],y=a[o+1],z=a[o+2];for(let i=3;i<n;i+=3){a[o+i]=x;a[o+i+1]=y;a[o+i+2]=z;}}
   pa.addUpdateRange(o,n);pa.needsUpdate=true;}}
 function pushV(g,x,y,z,nx,ny,nz,u,v,col,cell){g.p.push(x,y,z);g.n.push(nx,ny,nz);g.u.push(u,v);g.c.push(col.r,col.g,col.b);if(cell)g.e.push(cell[0],cell[1],cell[2],cell[3]);return g.vc++;}
@@ -537,9 +590,11 @@ if(kind>2.5&&kind<3.5)totalEmissiveRadiance+=diffuseColor.rgb*uNight*(.26+.2*smo
 function ctexRep(t,s){return t;}
 const LIT_MATS=['signs','blades','billboards','clock','theatre','marquee'];
 function geoFromBucket(g){const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(g.p,3));geo.setAttribute('normal',new THREE.Float32BufferAttribute(g.n,3));
-  geo.setAttribute('uv',new THREE.Float32BufferAttribute(g.u,2));geo.setAttribute('color',new THREE.Float32BufferAttribute(g.c,3));geo.setIndex(new THREE.BufferAttribute(g.vc>65535?new Uint32Array(g.i):new Uint16Array(g.i),1));geo.computeBoundingSphere();return geo;}
+  geo.setAttribute('uv',new THREE.Float32BufferAttribute(g.u,2));geo.setAttribute('color',new THREE.Float32BufferAttribute(g.c,3));if(g.e&&g.e.length)geo.setAttribute('cell',new THREE.Float32BufferAttribute(g.e,4));
+  geo.setIndex(new THREE.BufferAttribute(g.vc>65535?new Uint32Array(g.i):new Uint16Array(g.i),1));geo.computeBoundingSphere();return geo;}
 // build a dynamic object from the same primitive helpers (local coordinates); returns Group of meshes (one per material)
-function buildGroup(fn,matOverride){BKOV={};fn();const grp=new THREE.Group();for(const mk in BKOV){const g=BKOV[mk];if(!g.vc)continue;const m=new THREE.Mesh(geoFromBucket(g),(matOverride&&matOverride[mk])||MATS[mk]);m.castShadow=MCFG[mk]?MCFG[mk].cast:true;m.receiveShadow=true;m.name=mk;grp.add(m);}BKOV=null;return grp;}
+function buildGroup(fn,matOverride){const prev=BKOV,own=BKOV={};try{fn();}finally{BKOV=prev;}// (re-entrant: a live rebuild may be collecting world buckets around it)
+  const grp=new THREE.Group();for(const mk in own){const g=own[mk];if(!g.vc)continue;const m=new THREE.Mesh(geoFromBucket(g),(matOverride&&matOverride[mk])||MATS[mk]);m.castShadow=MCFG[mk]?MCFG[mk].cast:true;m.receiveShadow=true;m.name=mk;grp.add(m);}return grp;}
 function finalizeBuckets(scene){STREAM.scene=scene;const out=[];
   for(const mk in BK){for(const [ck,g] of BK[mk]){if(!g.vc)continue;const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(g.p,3));geo.setAttribute('normal',new THREE.Float32BufferAttribute(g.n,3));
     geo.setAttribute('uv',new THREE.Float32BufferAttribute(g.u,2));geo.setAttribute('color',new THREE.Float32BufferAttribute(g.c,3));if(g.e.length)geo.setAttribute('cell',new THREE.Float32BufferAttribute(g.e,4));
@@ -550,7 +605,7 @@ function finalizeBuckets(scene){STREAM.scene=scene;const out=[];
 
 // ================= COLLIDERS =================
 const COLS=[],CGRID=new Map(),CG=24;let colStamp=1;
-function addCol(c){c.id=COLS.length;c.st=0;COLS.push(c);const x0=c.circle?c.x-c.r:c.x0,x1=c.circle?c.x+c.r:c.x1,z0=c.circle?c.z-c.r:c.z0,z1=c.circle?c.z+c.r:c.z1;
+function addCol(c){c.id=COLS.length;c.st=0;COLS.push(c);if(SRC.stack.length)SRC.stack[SRC.stack.length-1].cols.push(c);const x0=c.circle?c.x-c.r:c.x0,x1=c.circle?c.x+c.r:c.x1,z0=c.circle?c.z-c.r:c.z0,z1=c.circle?c.z+c.r:c.z1;
   for(let gx=Math.floor(x0/CG);gx<=Math.floor(x1/CG);gx++)for(let gz=Math.floor(z0/CG);gz<=Math.floor(z1/CG);gz++){const k=gx*4096+gz;let a=CGRID.get(k);if(!a)CGRID.set(k,a=[]);a.push(c);}return c;}
 function removeCol(c){c.dead=true;const x0=c.circle?c.x-c.r:c.x0,x1=c.circle?c.x+c.r:c.x1,z0=c.circle?c.z-c.r:c.z0,z1=c.circle?c.z+c.r:c.z1;
   for(let gx=Math.floor(x0/CG);gx<=Math.floor(x1/CG);gx++)for(let gz=Math.floor(z0/CG);gz<=Math.floor(z1/CG);gz++){const a=CGRID.get(gx*4096+gz);if(!a)continue;const i=a.indexOf(c);if(i>=0)a.splice(i,1);}}
@@ -716,7 +771,7 @@ function genCity(cells){
         else{floors=rndi(4,14);style=pick(['redBrick','buff','industrial','hotel','brownstone','romanesque']);}
         if(edge)floors=rndi(5,16);const small=(lx1-lx0)*(lz1-lz0)<260;if(small)floors=Math.min(floors,rndi(3,8));
         const shopStreet=front.some(f=>f==='street');const setback=floors>=16?rndi(11,14):0;
-        genBuilding(lx0,lz0,lx1,lz1,{floors,style,front,setback,noShops:!shopStreet,billboard:!loop&&floors<8&&chance(.25)});}}
+        srcRun({label:'Building',floors,style},genBuilding,lx0,lz0,lx1,lz1,{floors,style,front,setback,noShops:!shopStreet,billboard:!loop&&floors<8&&chance(.25)});}}
   }}
 // ================= LANDMARKS =================
 function buildMaterials2(){stdMat('alley',{map:TX.pavers,normalMap:TX.paversN,roughness:.85,vertexColors:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2},false,true);
@@ -743,6 +798,7 @@ function columnRow(x0,z0,x1,z1,y,h,n,cr,col){for(let i=0;i<n;i++){const t=n==1?.
 function buildLandmarks(){
   const T=h=>C(h);
   // ---------- WRIGLEY BUILDING (1921-24) ----------
+  srcMark('Wrigley Building (1921-24)');
   {const w=T('#f4f1e8'),sd=.31;const y0=CURB,yS=CURB+SHOP_H;
    block4(234,-540,290,-508,yS,yS+16*FLOOR_H,7,3,w,{seed:sd,cornice:[1.2,.9],trim:w});sides(234,-540,290,-508).forEach(s=>{const L=Math.hypot(s.b[0]-s.a[0],s.b[1]-s.a[1]);facade(s.a[0],s.a[1],s.b[0],s.b[1],y0,yS,19,Math.round(L/3.6),1,1,sd,w);});
    block4(238,-567,290,-546,yS,yS+13*FLOOR_H,7,3,w,{seed:sd+.1,cornice:[1.1,.8],trim:w});sides(238,-567,290,-546).forEach(s=>{const L=Math.hypot(s.b[0]-s.a[0],s.b[1]-s.a[1]);facade(s.a[0],s.a[1],s.b[0],s.b[1],y0,yS,19,Math.round(L/3.6),1,1,sd,w);});
@@ -753,6 +809,7 @@ function buildLandmarks(){
    for(const [nx,nz] of [[1,0],[-1,0],[0,1],[0,-1]])clockFace(tx+nx*6.5,b2+6.8,tz+nz*6.5,nx,nz,3.4);
    const b3=b2+13;colonnadeRing(tx,b3+.5,tz,5,10,9,.45,w);cyl('stone',tx,b3,tz,3.8,3.8,10.5,16,w);cyl('stone',tx,b3+10.4,tz,3.4,3.6,3.6,16,w);dome(tx,b3+14,tz,3.5,1.1,w);cyl('stone',tx,b3+17.8,tz,.8,.9,3,8,w);cone('stone',tx,b3+20.8,tz,.5,5,8,w);sph('bronze',tx,b3+26,tz,.35,T('#c9a14a'));}
   // ---------- TRIBUNE TOWER (1925) ----------
+  srcMark('Tribune Tower (1925)');
   {const s=T('#cbc2ac'),sd=.53,top=CURB+100;
    block4(344,-562,376,-536,CURB+SHOP_H,top,5,0,s,{seed:sd,trim:s,roof:false});sides(344,-562,376,-536).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,12,Math.round(L/4),1,1,sd,s);
      const n=Math.round(L/4);for(let i=0;i<=n;i++){const t=i/n,x=lerp(q.a[0],q.b[0],t)+q.n[0]*.35,z=lerp(q.a[1],q.b[1],t)+q.n[1]*.35;box('stone',x,CURB,z,q.n[0]?.7:.9,top-CURB+(i%2?0:3),q.n[0]?.9:.7,s);}});
@@ -765,26 +822,31 @@ function buildLandmarks(){
      pinnacle(cx+Math.cos(a)*11,top+24,cz-Math.sin(a)*11,.9,13,s);}
    prism('stone',cx,top+24,cz,7.5,6,8,s,Math.PI/8);cone('stone',cx,top+30,cz,5,4,8,s);}
   // ---------- LONDON GUARANTEE (1923) ----------
+  srcMark('London Guarantee Building (1923)');
   {const s=T('#c4bba6'),sd=.61,yT=CURB+SHOP_H+18*FLOOR_H;block4(250,-405,290,-368,CURB+SHOP_H,yT,4,0,s,{seed:sd,cornice:[1.4,1.1],trim:s});boxCol(250,-405,290,-368,yT);
    sides(250,-405,290,-368).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,20,Math.round(L/3.6),1,1,sd,s);});
    columnRow(252,-406.8,288,-406.8,yT-16,15,9,.75,s);box('stone',270,yT-1.6,-406.4,40,1.6,2.4,s);
    const cx=280,cz=-395;cyl('stone',cx,yT,cz,5,5,3,20,s);colonnadeRing(cx,yT+3,cz,4.6,12,7,.42,s);cyl('stone',cx,yT+3,cz,3.6,3.6,7,16,s);dome(cx,yT+11,cz,5,.8,s);cyl('stone',cx,yT+15,cz,1,1.2,2.5,10,s);sph('bronze',cx,yT+18,cz,.5,T('#c9a14a'));}
   // ---------- MATHER TOWER (1928) ----------
+  srcMark('Mather Tower (1928)');
   {const s=T('#ede8da'),sd=.71,y1=CURB+SHOP_H+21*FLOOR_H;block4(224,-405,246,-383,CURB+SHOP_H,y1,7,0,s,{seed:sd,cornice:[.8,.5],trim:s});boxCol(224,-405,246,-383,165);
    sides(224,-405,246,-383).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,19,Math.round(L/3.6),1,1,sd,s);});
    const cx=235,cz=-394;facadeCyl(cx,cz,9.5,y1,y1+28,8,6,8,7,0,sd,s);ringBoxOct(cx,y1+28,cz,9.8,s);facadeCyl(cx,cz,6.8,y1+28.8,y1+42,8,6,6,3,0,sd,s);prism('glass',cx,y1+42,cz,4.6,4,8,T('#556'),Math.PI/8);
    for(let i=0;i<8;i++){const a=i/8*TAU;pinnacle(cx+Math.cos(a)*9.3,y1+28,cz-Math.sin(a)*9.3,.5,5,s);}cone('stone',cx,y1+46,cz,4.4,20,8,s);}
   // ---------- JEWELERS BUILDING (1926) ----------
+  srcMark('Jewelers Building (1926)');
   {const s=T('#e6dfcf'),sd=.83,y1=CURB+SHOP_H+16*FLOOR_H,y2=y1+15*FLOOR_H;block4(148,-405,192,-370,CURB+SHOP_H,y1,13,0,s,{seed:sd,cornice:[1.2,1],trim:s});boxCol(148,-405,192,-370,180);
    sides(148,-405,192,-370).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,20,Math.round(L/3.6),1,1,sd,s);});
    block4(158,-398,182,-376,y1,y2,13,0,s,{seed:sd+.1,cornice:[1.1,.8],trim:s});const cx=170,cz=-387;
    cyl('stone',cx,y2,cz,9.5,9.8,4,24,s);colonnadeRing(cx,y2+4.4,cz,9,16,8,.5,s);cyl('stone',cx,y2+4,cz,7.6,7.6,9,24,s);dome(cx,y2+13.6,cz,9.6,.85,T('#d9d2c2'));cyl('stone',cx,y2+21.5,cz,1.8,2,4,12,s);dome(cx,y2+25.5,cz,2,1.1,s);cone('stone',cx,y2+27.5,cz,.4,4,6,s);
    for(const [a,b] of [[-10.5,-9.5],[10.5,-9.5],[-10.5,9.5],[10.5,9.5]]){colonnadeRing(cx+a,y2+.4,cz+b,1.7,6,5,.25,s);dome(cx+a,y2+6.2,cz+b,2,1,s);}}
   // ---------- 333 NORTH MICHIGAN (1928) ----------
+  srcMark('333 North Michigan (1928)');
   {const s=T('#d6cfbb'),sd=.13,y1=CURB+SHOP_H+21*FLOOR_H,y2=y1+9*FLOOR_H;block4(332,-440,372,-400,CURB+SHOP_H,y1,6,0,s,{seed:sd,trim:s});boxCol(332,-440,372,-400,y2+10);
    sides(332,-440,372,-400).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,17,Math.round(L/3.6),1,1,sd,s);});
    block4(338,-432,366,-408,y1,y2,6,0,s,{seed:sd+.1,trim:s});block4(344,-426,360,-414,y2,y2+8,26,2,s,{seed:sd+.2,cornice:[.6,.3],trim:s});}
   // ---------- CHICAGO THEATRE (1921) ----------
+  srcMark('Chicago Theatre (1921)');
   {const s=T('#e2d6bc'),sd=.44;block4(126,-292,164,-262,CURB,CURB+30,13,0,s,{seed:sd,skip:[3],cornice:[1,.8],trim:s});boxCol(126,-292,164,-262,31);
    quad('stone',[126,CURB,-292],[126,CURB,-262],[126,CURB+30,-262],[126,CURB+30,-292],[0,0,8,8],s);box('stone',125,CURB+28.5,-277,2.4,1.5,32,s);
    box('stone',125.6,CURB+6,-289,1.4,22,4,s);box('stone',125.6,CURB+6,-265,1.4,22,4,s);box('glass',125.9,CURB+7,-277,.2,13,18,T('#3a3d40'));
@@ -794,30 +856,36 @@ function buildLandmarks(){
    quad('marquee',[121.8,CURB+4.4,-265.95],[126,CURB+4.4,-265.95],[126,CURB+6,-265.95],[121.8,CURB+6,-265.95],[0,0,.2,1]);quad('marquee',[126,CURB+4.4,-288.05],[121.8,CURB+4.4,-288.05],[121.8,CURB+6,-288.05],[126,CURB+6,-288.05],[0,0,.2,1]);
    quad('glow',[121.8,CURB+4.38,-288],[126,CURB+4.38,-288],[126,CURB+4.38,-266],[121.8,CURB+4.38,-266],[0,0,1,1],T('#ffd890'));}
   // ---------- MARSHALL FIELD & COMPANY ----------
+  srcMark('Marshall Field & Company');
   {const s=T('#cfc9ba'),sd=.27,y1=CURB+SHOP_H+11*FLOOR_H;block4(126,-217,198,-141,CURB+SHOP_H+FLOOR_H,y1,14,0,s,{seed:sd,cornice:[1.6,1.3],trim:s});boxCol(126,-217,198,-141,y1);
    sides(126,-217,198,-141).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,20,Math.round(L/3.6),1,1,sd,s);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB+SHOP_H,CURB+SHOP_H+FLOOR_H,12,Math.round(L/4.5),1,0,sd,s);});
    for(const cz of [-141,-217]){const dz=cz>-180?1:-1,bx=124.2,bz=cz+dz*1.8;box('bronze',bx,CURB+5.2,bz,1.5,2.1,1.5,T('#5a4524'));box('bronze',bx+.9,CURB+6.1,bz-dz*.9,2.2,.25,.25,T('#5a4524'));
      clockFace(bx-.76,CURB+6.25,bz,-1,0,.6,false);clockFace(bx,CURB+6.25,bz+dz*.76,0,dz,.6,false);cone('bronze',bx,CURB+7.3,bz,.9,.6,4,T('#5a4524'));}
    for(const z of [-196,-179,-162])box('bronze',123.5,CURB+4.6,z,5,.35,6,T('#4a3a20'));}
   // ---------- RELIANCE BUILDING (1895) ----------
+  srcMark('Reliance Building (1895)');
   {const s=T('#ebe7dc'),sd=.91,y1=CURB+SHOP_H+14*FLOOR_H;block4(72,-119,94,-98,CURB+SHOP_H,y1,3,0,s,{seed:sd,cornice:[.7,.9],trim:s});boxCol(72,-119,94,-98,y1);
    sides(72,-119,94,-98).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,19,Math.round(L/3.6),1,1,sd,s);});
    for(const [x0,z0,x1,z1] of [[94,-115,95.2,-109],[94,-106,95.2,-100],[76,-120.2,82,-119],[85,-120.2,91,-119]])block4(x0,z0,x1,z1,CURB+SHOP_H+FLOOR_H,y1-1,3,0,s,{seed:sd,bw:3,roof:true});}
   // ---------- CARSON PIRIE SCOTT (Sullivan) ----------
+  srcMark('Carson Pirie Scott (Sullivan)');
   {const s=T('#ece8dd'),sd=.37,y1=CURB+SHOP_H+11*FLOOR_H;block4(126,-17,192,40,CURB+SHOP_H+FLOOR_H,y1,3,0,s,{seed:sd,cornice:[.6,1.4],trim:s});boxCol(126,-17,192,40,y1);
    sides(126,-17,192,40).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H+FLOOR_H,23,Math.round(L/4),2,1,sd,s);});
    facadeCyl(131,-12,6.5,CURB,CURB+SHOP_H+FLOOR_H,14,23,6,2,1,sd,s,Math.PI*.5,Math.PI*1.5);facadeCyl(131,-12,6.5,CURB+SHOP_H+FLOOR_H,y1,14,3,6,10,0,sd,s,Math.PI*.5,Math.PI*1.5);
    facadeCyl(131,-12,6.5,CURB,y1,10,3,4,12,0,sd,s,Math.PI*1.5,Math.PI*2.5);}
   // ---------- CITY HALL & COUNTY BUILDING ----------
+  srcMark('City Hall & County Building');
   {const s=T('#bfb9aa'),sd=.57,y1=CURB+SHOP_H+10*FLOOR_H;block4(-206,-215,-123,-143,CURB,y1,14,0,s,{seed:sd,cornice:[2,1.8],trim:s});boxCol(-208,-217,-121,-141,y1);
    sides(-206,-215,-123,-143).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H+FLOOR_H,12,Math.round(L/4.5),2,0,sd,s);
      const n=Math.round(L/5.6);columnRow(q.a[0]+q.n[0]*1.8,q.a[1]+q.n[1]*1.8,q.b[0]+q.n[0]*1.8,q.b[1]+q.n[1]*1.8,CURB+SHOP_H+FLOOR_H,24,n,.95,s);});
    ringBox('stone',-206,-215,-123,-143,CURB+SHOP_H+FLOOR_H+23.5,2.6,3,s);}
   // ---------- THE ROOKERY (1888) ----------
+  srcMark('The Rookery (1888)');
   {const s=T('#9b5a44'),sd=.19,y1=CURB+SHOP_H+10*FLOOR_H;block4(-208,181,-166,222,CURB+SHOP_H+FLOOR_H,y1,8,0,s,{seed:sd,cornice:[1.2,1],trim:T('#8a7866')});boxCol(-208,181,-166,222,y1);
    sides(-208,181,-166,222).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H+FLOOR_H,12,Math.round(L/4.5),2,1,sd,T('#b9b2a6'));});
    box('stone',-208.6,CURB,201.5,1.2,9,9,T('#8e877c'));box('glass',-208.9,CURB,201.5,.4,7,6,T('#222'));for(const z of [183,220])prism('stone',-207,CURB,z,2.4,y1+3,8,T('#9b5a44'));}
   // ---------- BOARD OF TRADE (1885) with clock tower ----------
+  srcMark('Board of Trade (1885)');
   {const s=T('#9d988e'),sd=.67,y1=CURB+SHOP_H+9*FLOOR_H;block4(-250,295,-190,342,CURB+SHOP_H+FLOOR_H,y1,4,0,s,{seed:sd,cornice:[1.2,1],trim:s});boxCol(-250,283,-190,342,y1);
    sides(-250,295,-190,342).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H+FLOOR_H,12,Math.round(L/4.5),2,0,sd,s);});
    const tx=-220,tz=289,th=70;block4(tx-7,tz-6,tx+7,tz+6,CURB,th,12,0,s,{seed:sd+.1,fh:6,bw:4.6,cornice:[1,1],trim:s});boxCol(tx-7,tz-6,tx+7,tz+6,95);
@@ -825,24 +893,29 @@ function buildLandmarks(){
    const roofGeo=new THREE.ConeGeometry(1,1,4);_m1.makeRotationY(Math.PI/4);_m1.scale(_v1.set(9.4,22,8.6));_m1.setPosition(tx,th+11,tz);addGeo('metal',roofGeo,_m1,T('#3b3f3f'));
    for(const [a,b] of [[-7,-6],[7,-6],[-7,6],[7,6]])pinnacle(tx+a,th,tz+b,.9,8,s);cyl('metal',tx,th+22,tz,.1,.1,5,4,T('#222'));}
   // ---------- MONADNOCK (1891) ----------
+  srcMark('Monadnock Building (1891)');
   {const s=T('#4a3426'),sd=.05,y1=CURB+SHOP_H+15*FLOOR_H;block4(-34,283,-11,358,CURB+SHOP_H,y1,2,0,s,{seed:sd,trim:s});boxCol(-34,283,-11,358,y1);
    sides(-34,283,-11,358).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,17,Math.round(L/3.6),1,1,sd,s);});
    for(let z=292;z<356;z+=12.5)block4(-11,z,-10,z+5,CURB+SHOP_H+FLOOR_H,y1-2,2,0,s,{seed:sd,bw:2.5});ringBox('stone',-34,283,-11,358,y1-1.4,.7,.5,T('#3e2a1e'));ringBox('stone',-34,283,-11,358,y1-.7,.7,1.1,T('#3e2a1e'));}
   // ---------- CHICAGO PUBLIC LIBRARY (1897) ----------
+  srcMark('Chicago Public Library (1897)');
   {const s=T('#c8bea8'),sd=.75,y1=CURB+SHOP_H+4*5.2;block4(238,-217,290,-141,CURB+SHOP_H,y1,4,0,s,{seed:sd,fh:5.2,cornice:[1.6,1.4],trim:s});boxCol(238,-217,290,-141,y1);
    sides(238,-217,290,-141).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,12,Math.round(L/4.5),1,0,sd,s);});
    columnRow(292,-190,292,-168,CURB+1.2,12,4,.7,s);box('stone',291.5,CURB,-179,4,1.2,26,s);box('stone',291.5,CURB+13.2,-179,3.6,1.8,26,s);}
   // ---------- STRAUS BUILDING (1924) with the beehive ----------
+  srcMark('Straus Building (1924)');
   {const s=T('#cdc5b1'),sd=.49,y1=CURB+SHOP_H+18*FLOOR_H;block4(238,214,290,257,CURB+SHOP_H,y1,4,0,s,{seed:sd,cornice:[1.2,1],trim:s});boxCol(238,214,290,257,y1+20);
    sides(238,214,290,257).forEach(q=>{const L=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]);facade(q.a[0],q.a[1],q.b[0],q.b[1],CURB,CURB+SHOP_H,20,Math.round(L/3.6),1,1,sd,s);});
    box('stone',264,y1,235.5,34,5,30,s);box('stone',264,y1+5,235.5,24,5,21,s);box('stone',264,y1+10,235.5,14,5,12,s);box('stone',264,y1+15,235.5,5,2,5,s);
    sph('glow',264,y1+19.2,235.5,2.1,T('#5d8bd8'),12,10,1.35);for(const [a,b] of [[-2.8,0],[2.8,0],[0,-2.8],[0,2.8]])box('bronze',264+a,y1+17,235.5+b,.9,.9,1.6,T('#3a3326'));}
   // ---------- ART INSTITUTE (1893) + lions ----------
+  srcMark('Art Institute (1893)');
   {const s=T('#c3baa6'),sd=.33;block4(346,140,404,228,CURB,CURB+20,4,0,s,{seed:sd,fh:6.5,cornice:[1.4,1.2],trim:s});boxCol(346,140,404,228,22);
    block4(338,168,346,200,CURB,CURB+24,26,2,s,{seed:sd,cornice:[1.2,1],trim:s});boxCol(338,168,346,200,26);
    for(let i=0;i<4;i++)box('stone',336-i*1.1,CURB,184,2.2,.9-i*.2,36-i*2,T('#b3aa96'));columnRow(337,172,337,196,CURB+1,13,6,.55,s);
    for(const z of [172,196]){box('stone',332,CURB,z,4,1.8,1.9,T('#6f6b66'));lion(332,CURB+1.8,z,z>184);}}
   // ---------- WATER TOWER (1869) ----------
+  srcMark('Water Tower (1869)');
   {const s=T('#d8c99c'),cx=264,cz=-776;box('stone',cx,CURB,cz,14,13,14,s);boxCol(cx-7,cz-7,cx+7,cz+7,48);
    for(const [a,b] of [[-7,-7],[7,-7],[-7,7],[7,7]]){prism('stone',cx+a,CURB,cz+b,1.6,17,8,s);for(let k=0;k<8;k++){const an=k/8*TAU;box('stone',cx+a+Math.cos(an)*1.5,CURB+17,cz+b+Math.sin(an)*1.5,.5,.8,.5,s);}cone('stone',cx+a,CURB+17.8,cz+b,1,3,8,s);}
    for(const [nx,nz] of [[1,0],[-1,0],[0,1],[0,-1]]){box('glass',cx+nx*7.05,CURB+4,cz+nz*7.05,nz?2.2:.1,5,nx?2.2:.1,T('#2b2b2b'));box('stone',cx+nx*7.2,CURB+9,cz+nz*7.2,nz?5:.4,.6,nx?5:.4,s);}
@@ -862,9 +935,10 @@ function bridgeDeck(x0,x1,z0,z1,rw,cx,dyn){ // deck in either world or local coo
     for(let z=z0+1;z<z1;z+=.55)box('metal',ex,CURB+.12,z,.05,.93,.05,C('#2b2f2a'));for(let z=z0+2;z<z1-1;z+=5)box('metal',ex,CURB,z,.24,1.2,.24,C('#2b2f2a'));}
   for(const gx of [-rw/2+1,-rw/6,rw/6,rw/2-1])box('iron',cx+gx,-3.6,zc,.8,3.2,L,C('#3a4238'),0,2);for(let z=z0+2;z<z1;z+=6)box('iron',cx,-2.6,z,rw+2*SWK-.4,1.6,.5,C('#3a4238'),0,2);}
 function buildBridges(scene){
-  for(const b of BRIDGES){if(b.bascule)continue;bridgeDeck(0,0,rivN(b.x)-2.5,rivS(b.x)+2.5,b.rw,b.x,false);
+  for(const b of BRIDGES){if(b.bascule)continue;srcMark(b.n+' bridge');bridgeDeck(0,0,rivN(b.x)-2.5,rivS(b.x)+2.5,b.rw,b.x,false);
     for(const sgn of [-1,1])for(const z of [rivN(b.x)-2.5,rivS(b.x)+2.5]){box('stone',b.x+sgn*(b.rw/2+SWK+1.2),CURB,z,2.4,2.2,2.4,C('#8d877b'));sph('glow',b.x+sgn*(b.rw/2+SWK+1.2),CURB+2.8,z,.35,C('#fff1c8'));}}
   // Michigan Avenue bascule: two leaves pivoting at the banks
+  srcMark('Michigan Ave bascule bridge');
   const hw=BASC.hw;const mkLeaf=(dir)=>{const g=buildGroup(()=>{bridgeDeck(0,0,dir<0?-30:0,dir<0?0:30,31,0,true);box('iron',0,-7.5,dir<0?4:-4,34,6,6,C('#2e332c'));
       for(const z of [8,22])for(const sgn of [-1,1]){const zz=dir*z;box('metal',sgn*19.4,CURB,zz,.3,4.2,.3,C('#1f2320'));box('metal',sgn*19.4,CURB+4.2,zz,.1,.1,1.6,C('#1f2320'));sph('glow',sgn*19.4,CURB+4.5,zz-.7,.3,C('#fff1c8'));sph('glow',sgn*19.4,CURB+4.5,zz+.7,.3,C('#fff1c8'));}});
     g.position.set(BASC.x,0,dir<0?rivS(BASC.x):rivN(BASC.x));scene.add(g);return g;};
@@ -894,19 +968,20 @@ function makePath(pts,closed){const P=pts.map(p=>({x:p[0],z:p[1],s:0}));let s=0;
 function samplePath(path,s,out){const P=path.P;if(path.closed){s=((s%path.len)+path.len)%path.len;}else s=clamp(s,0,path.len);
   let lo=0,hi=P.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(P[m].s<=s)lo=m;else hi=m-1;}const a=P[lo],b=lo+1<P.length?P[lo+1]:P[0];const bs=lo+1<P.length?b.s:path.len;const t=clamp((s-a.s)/Math.max(1e-6,bs-a.s),0,1);
   out.x=a.x+(b.x-a.x)*t;out.z=a.z+(b.z-a.z)*t;out.dx=b.x-a.x;out.dz=b.z-a.z;const l=Math.hypot(out.dx,out.dz)||1;out.dx/=l;out.dz/=l;return out;}
-function buildL(){
+function buildL(){srcMark('L track & deck');
   const center=loopCenterline(0);L_PATHS=[loopCenterline(1.9),loopCenterline(-1.9)];const P=center.P,n=P.length;const iron=C('#34402f'),wood=C('#4a3b2c');
   for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n];const dx=b.x-a.x,dz=b.z-a.z,L=Math.hypot(dx,dz);if(L<.01)continue;const ang=Math.atan2(dx,dz),mx=(a.x+b.x)/2,mz=(a.z+b.z)/2,nx=dz/L,nz=-dx/L;
     for(const o of [-2.9,-.9,.9,2.9])box('iron',mx+nx*o,L_DECK-1.25,mz+nz*o,.5,1.25,L+.05,iron,ang,2);
     for(const o of [-1.9,1.9]){box('wood',mx+nx*o,L_DECK,mz+nz*o,2.5,.2,L+.05,wood,ang,2);for(const r of [-.72,.72])box('metal',mx+nx*(o+r),L_DECK+.2,mz+nz*(o+r),.08,.15,L+.05,C('#5a5a58'),ang);}
     box('wood',mx+nx*4.2,L_DECK,mz+nz*4.2,.9,.1,L,wood,ang);box('wood',mx+nx*-4.2,L_DECK,mz+nz*-4.2,.9,.1,L,wood,ang);}
   // bents (columns + cross girders) every ~15m
+  srcMark('L columns & girders');
   let acc=0;for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n];const L=Math.hypot(b.x-a.x,b.z-a.z);acc+=L;if(acc<15)continue;acc=0;const dx=(b.x-a.x)/L,dz=(b.z-a.z)/L,nx=dz,nz=-dx,ang=Math.atan2(dx,dz);
     const w=6.6;for(const sgn of [-1,1]){const cx=a.x+nx*w*sgn,cz=a.z+nz*w*sgn;if(isWater(cx,cz))continue;box('iron',cx,0,cz,.9,.35,.9,iron);box('iron',cx,0,cz,.5,L_DECK-1.2,.5,iron,ang,2);circCol(cx,cz,.45,8,'lcol');
       _m1.makeRotationFromEuler(_e1.set(0,ang+Math.PI/2,sgn*.8));_m1.setPosition(cx-nx*sgn*.8,L_DECK-2.1,cz-nz*sgn*.8);boxM('iron',_m1,.25,2.2,.25,iron);}
     box('iron',a.x,L_DECK-2.0,a.z,2*w+.6,.8,.6,iron,ang,2);}
   // stations
-  const ss=C('#6d5a44');for(const st of L_STATIONS){const pos=stationPos(st);const {x,z,ax,az}=pos;const along=Math.abs(ax)>.5;
+  const ss=C('#6d5a44');for(const st of L_STATIONS){srcMark(st.n+' station');const pos=stationPos(st);const {x,z,ax,az}=pos;const along=Math.abs(ax)>.5;
     for(const sgn of [-1,1]){const px=x+(along?0:sgn*4.7),pz=z+(along?sgn*4.7:0);box('wood',px,L_DECK+.8,pz,along?60:2.6,.25,along?2.6:60,C('#5b4a38'));
       for(let k=-27;k<=27;k+=6){const qx=px+(along?k:sgn*.8),qz=pz+(along?sgn*.8:k);box('iron',qx,L_DECK+1.05,qz,.18,3.2,.18,iron);}
       box('metal',px+(along?0:sgn*.4),L_DECK+4.2,pz+(along?sgn*.4:0),along?58:3.6,.18,along?3.6:58,C('#3d3a33'));
@@ -951,6 +1026,7 @@ function crossAt(s){ // intersections along a street
 function nearCross(s,t,m){for(const c of crossAt(s))if(Math.abs(t-c.c)<c.w/2+m)return true;return false;}
 function buildFurniture(scene){
   // ----- lamp placement -----
+  srcMark('Street lamps');
   const posts=[];
   for(const s of [...NS,...EW]){const twin=/Michigan|State/.test(s.n);const a0=s.ns?s.z0:s.x0,a1=s.ns?s.z1:s.x1;
     for(let t=a0+8;t<a1-8;t+=28){if(nearCross(s,t,5))continue;for(const sg of [-1,1]){const off=s.rw/2+.55;const x=s.ns?s.x+sg*off:t,z=s.ns?t:s.z+sg*off;if(surfType(x,z)!=='block'&&surfType(x,z)!=='park')continue;
@@ -1003,6 +1079,7 @@ function buildFurniture(scene){
   gl.forEach((g,i)=>{if(gdark.has(i))dm.makeScale(0,0,0);else dm.makeTranslation(g[0],groundAt(g[0],g[2])+.04,g[2]);pool.setMatrixAt(i,dm);});pool.renderOrder=2;pool.frustumCulled=false;
   INST.lampPosts=BM;INST.lampWood=IW;INST.globes=GI;INST.pools=pool;INST.globePos=gl;INST.globeTint=gtint;INST.globeDark=gdark;scene.add(BM,IW,GI,pool);
   // ----- traffic signals & street signs -----
+  srcMark('Traffic signals & street signs');
   const inter=[];for(const n of NS)for(const e of EW)if(n.x>=e.x0&&n.x<=e.x1&&e.z>=n.z0&&e.z<=n.z1)inter.push({x:n.x,z:e.z,n,e});
   const lampPos=[];const sigPost=mergeGeos([[new THREE.CylinderGeometry(.1,.14,4.2,8),new THREE.Matrix4().makeTranslation(0,2.1,0)],[new THREE.BoxGeometry(.5,1.25,.5),new THREE.Matrix4().makeTranslation(0,4.8,0)],[new THREE.ConeGeometry(.42,.35,4),new THREE.Matrix4().makeRotationY(Math.PI/4).setPosition(0,5.6,0)]]);
   const sigList=inter.filter(i=>i.x>=-340&&i.x<=320&&i.z>=-440&&i.z<=380||(i.x===310||i.x===110)&&i.z<-440);
@@ -1020,10 +1097,12 @@ function buildFurniture(scene){
   for(const it of inter){if(it.x<VIS.x0+20||it.z<VIS.z0+20||it.z>VIS.z1-20)continue;const px=it.x+(it.n.rw/2+.7),pz=it.z-(it.e.rw/2+.7);if(surfType(px,pz)==='river')continue;
     placeProp('signpost',px,pz,0,{ns:it.n.n,ew:it.e.n});}// its own post at every corner (the old plates hung in the air where a stoplight stood)
   // ----- hydrants (instanced, breakable) -----
+  srcMark('Fire hydrants');
   const hyd=[];for(const s of NS){for(let t=s.z0+40;t<s.z1-20;t+=95){if(nearCross(s,t,6))continue;const x=s.x+(s.rw/2+.5)*(hyd.length%2?1:-1);if(surfType(x,t)!=='block')continue;hyd.push([x,t]);}}
   const hg=mergeGeos([[new THREE.CylinderGeometry(.17,.2,.62,10),new THREE.Matrix4().makeTranslation(0,.31,0)],[new THREE.SphereGeometry(.18,10,6,0,TAU,0,Math.PI/2),new THREE.Matrix4().makeTranslation(0,.62,0)],[new THREE.CylinderGeometry(.06,.06,.5,6),new THREE.Matrix4().makeRotationZ(Math.PI/2).setPosition(0,.45,0)]]);
   const HI=instMesh(hg,new THREE.MeshStandardMaterial({color:C('#8f2219'),roughness:.5,metalness:.3}),hyd.length);hyd.forEach((h,i)=>{dm.makeTranslation(h[0],CURB,h[1]);HI.setMatrixAt(i,dm);const r={K:SPK.hydrant,x:h[0],z:h[1],yaw:0,y0:CURB,i,alive:true,dyn:null,anim:null,downT:0,put:M=>{HI.setMatrixAt(i,M);HI.instanceMatrix.needsUpdate=true;}};r.col=circCol(h[0],h[1],.22,1,'prop',r);HYDRANTS.push(r);});INST.hydrants=HI;scene.add(HI);
   // ----- trolley poles & overhead wires (State St, Madison St) -----
+  srcMark('Trolley poles, overhead wires & streetcar rails');
   const wires=[];const wp=(a,b)=>wires.push(a[0],a[1],a[2],b[0],b[1],b[2]);
   for(const s of [NS.find(n=>n.n==='State St'),EW.find(e=>e.n==='Madison St')]){const a0=s.ns?s.z0:s.x0,a1=s.ns?s.z1:s.x1;let prev=null;
     for(let t=a0+5;t<=a1-5;t+=36){const pts=[],recs=[];for(const sg of [-1,1]){const x=s.ns?s.x+sg*(s.rw/2+.35):t,z=s.ns?t:s.z+sg*(s.rw/2+.35);if(surfType(x,z)==='river'){continue;}recs.push(placeProp('tpole',x,z,0));pts.push([x,CURB+6.6,z]);}
@@ -1033,17 +1112,20 @@ function buildFurniture(scene){
   // streetcar rails in the setts
   for(const s of [NS.find(n=>n.n==='State St'),EW.find(e=>e.n==='Madison St')])for(const o of [-2.52,-1.08,1.08,2.52]){if(s.ns)box('metal',s.x+o,0,(s.z0+s.z1)/2,.09,.025,s.z1-s.z0,C('#6d6b66'));else box('metal',(s.x0+s.x1)/2,0,s.z+o,s.x1-s.x0,.025,.09,C('#6d6b66'));}
   // ----- mailboxes, newsstands, troughs, police call boxes -----
+  srcMark('Mailboxes, newsstands, troughs & call boxes');
   let k=0;for(const it of inter){if(it.x<MAP.x0||it.z<MAP.z0||it.z>MAP.z1||it.x>330)continue;k++;const sx=it.x-(it.n.rw/2+1.2),sz=it.z+(it.e.rw/2+1.4);if(surfType(sx,sz)!=='block')continue;
     if(k%3===0)placeProp('mailbox',sx,sz,0);
     else if(k%3===1)NEWSSTANDS.push(placeProp('newsstand',sx,sz,0));
     else placeProp('trough',sx,sz,0);}
   // ----- barricades at the edges of the playable city -----
+  srcMark('Barricades at the city edge');
   const bar=(x,z,alongX,len)=>{const n=Math.max(2,Math.round(len/3));for(let i=0;i<n;i++){const t=(i+.5)/n-.5,bx=alongX?x+t*len:x,bz=alongX?z:z+t*len;for(let j=0;j<6;j++){const c=j%2?C('#e9e4d6'):C('#a31d1a');const o=(j/6-.42)*2.6;box('paint',alongX?bx+o:bx,CURB+.75,alongX?bz:bz+o,alongX?.44:.12,.26,alongX?.12:.44,c);}
       for(const o of [-1.2,1.2])box('wood',alongX?bx+o:bx,0,alongX?bz:bz+o,.1,.9,.1,C('#4a3a2a'));}
     if(alongX)boxCol(x-len/2,z-.6,x+len/2,z+.6,2.5,-5,'bar');else boxCol(x-.6,z-len/2,x+.6,z+len/2,2.5,-5,'bar');};
   for(const s of NS){if(s.z0<MAP.z0&&s.z1>MAP.z0&&s.x<LAKE_X)bar(s.x,MAP.z0,true,s.w);if(s.z1>MAP.z1&&s.z0<MAP.z1)bar(s.x,MAP.z1,true,s.w);}
   for(const e of EW){if(e.x0<MAP.x0)bar(MAP.x0,e.z,false,e.w);}
   // ----- Grant Park: paths, balustrade, benches, trees -----
+  srcMark('Grant Park paths, balustrade, benches & trees');
   const pathQ=(x0,z0,x1,z1)=>quad('path',[x0,CURB+.015,z1],[x1,CURB+.015,z1],[x1,CURB+.015,z0],[x0,CURB+.015,z0],[x0/6,-z1/6,x1/6,-z0/6]);
   pathQ(455,PARK.z0,465,294);pathQ(455,366,465,VIS.z1-20);pathQ(340,-150,590,-142);pathQ(340,100,590,108);pathQ(405,120,455,130);
   for(let z=PARK.z0+2;z<VIS.z1-10;z+=2.6){if(Math.abs(z+30)<5||Math.abs(z-104)<5||Math.abs(z-270)<16||Math.abs(z-184)<14)continue;box('stone',PARK.x0+.6,CURB,z,.45,.9,.45,C('#b4ac99'));box('stone',PARK.x0+.6,CURB+.85,z+1.3,.55,.16,2.6,C('#bdb5a2'));}
@@ -1055,6 +1137,7 @@ function buildFurniture(scene){
   // the promenade's benches (their sitters come from spawnSpecials, so they are not in BENCHES)
   for(let z=PARK.z0+20;z<VIS.z1-20;z+=34)for(const x of [452.5,467.5]){if(Math.abs(z-330)<40)continue;placeProp('bench',x,z,x<460?Math.PI/2:-Math.PI/2);}
   // ----- Illinois Central railyard -----
+  srcMark('Illinois Central railyard');
   for(let x=392;x<0;x+=16){if(yEnd(x)<RAIL.z0+12)continue;box('wood',x,YARD_Y-.05,(RAIL.z0+yEnd(x))/2,2.6,.14,yEnd(x)-RAIL.z0,C('#3d3228'),0,2);for(const o of [-.72,.72])box('metal',x+o,YARD_Y+.09,(RAIL.z0+yEnd(x))/2,.08,.14,yEnd(x)-RAIL.z0,C('#5e5a55'));
     let z=RAIL.z0+rnd(4,20);while(z<yEnd(x)-16){if(chance(.55)){const c=pick(['#6b2f22','#5a3a28','#4e4a44','#7a4a2a']);box('wood',x,YARD_Y+1.1,z+6,2.9,3.1,12.4,C(c),0,2);box('metal',x,YARD_Y+4.2,z+6,3.1,.2,12.6,C('#2e2c29'));for(const o of [1.5,10.5])box('metal',x,YARD_Y+.2,z+o,2.2,.9,2.2,C('#1c1b1a'));boxCol(x-1.5,z,x+1.5,z+12.4,YARD_Y+4.5,YARD_Y-1);}z+=rnd(13,26);}}
   
@@ -3905,8 +3988,16 @@ function selectRow(p,label,opts,get,set){const r=el('div',{className:'row'},p);e
 function colorRow(p,label,get,set){const r=el('div',{className:'row'},p);el('label',{textContent:label},r);const c=el('input',{type:'color'},r);c.value=get();c.addEventListener('input',()=>set(c.value));}
 function checkRow(p,label,get,set){const r=el('div',{className:'row'},p);el('label',{textContent:label},r);const c=el('input',{type:'checkbox'},r);c.checked=!!get();c.addEventListener('change',()=>set(c.checked));}
 const DEVUI={tab:'spawn',cat:'All'};
+// ---------- Claude: the in-game editor. Its code is the page's twEditor script (in the single-file taxiwars.html) or the artifact's
+// editor.js (on claude.ai, where the loader starts it with the game); it draws its own page into this tab ----------
+function loadEditor(){if(window.TWE)return Promise.resolve(window.TWE);if(loadEditor.p)return loadEditor.p;
+  return(loadEditor.p=new Promise(res=>{const s=document.getElementById('twEditor'),r=document.createElement('script');
+    if(s){r.textContent=s.textContent+'\n//# sourceURL=taxiwars-claude-editor.js';document.body.appendChild(r);res(window.TWE||null);}
+    else{r.src='editor.js';r.onload=()=>res(window.TWE||null);r.onerror=()=>res(null);document.body.appendChild(r);}}));}
+function claudePanel(P){const wait=el('p',{textContent:'Loading…'},P);loadEditor().then(E=>{wait.remove();if(E)E.panel(P);else el('p',{textContent:'The Claude editor is not part of this copy of the game.'},P);});}
 function buildDev(){const P=$('devPanel');if(!P)return;P.innerHTML='';
-  const tabs=el('div',{className:'devTabs'},P);for(const [k,t] of [['spawn','Spawn'],['char','Your character'],['horse','Your horse'],['crowd','Crowd']]){const b=el('button',{textContent:t},tabs);b.classList.toggle('on',DEVUI.tab===k);b.onclick=()=>{DEVUI.tab=k;buildDev();};}
+  const tabs=el('div',{className:'devTabs'},P);for(const [k,t] of [['spawn','Spawn'],['char','Your character'],['horse','Your horse'],['crowd','Crowd'],['claude','Claude']]){const b=el('button',{textContent:t},tabs);b.classList.toggle('on',DEVUI.tab===k);b.onclick=()=>{DEVUI.tab=k;buildDev();};}
+  if(DEVUI.tab==='claude'){claudePanel(P);return;}
   if(!PEOPLE.crowd||!HORSES.factory||!STATE.started){el('p',{textContent:'Available once you are out in the city.'},P);return;}
   if(DEVUI.tab==='spawn'){const all=assetCatalog();const cats=['All',...new Set(all.map(a=>a.cat))];
     const chips=el('div',{className:'devChips'},P);for(const c of cats){const b=el('button',{textContent:c},chips);b.classList.toggle('on',DEVUI.cat===c);b.onclick=()=>{DEVUI.cat=c;buildDev();};}
@@ -3976,6 +4067,19 @@ function updateCamera(dt,cam){const P=PLAYER,h=P.h;const md=INVERT?-1:1;CAM.idle
   if(CAM.lastCar!==P.car){CAM.pos.copy(_cp);CAM.lastCar=P.car;}CAM.pos.lerp(_cp,k);CAM.look.lerp(tgt,Math.min(1,dt*16));
   cam.position.copy(CAM.pos);if(CAM.shake>0){CAM.shake=Math.max(0,CAM.shake-dt*2);cam.position.x+=(rand()-.5)*CAM.shake*.3;cam.position.y+=(rand()-.5)*CAM.shake*.3;}cam.lookAt(CAM.look);
   if(P.car){const sp=P.car.speed(),wide=clamp((cam.aspect-1)/.7,0,1);cam.fov+=(lerp(62,58,wide)+Math.min(lerp(14,7,wide),sp*.3)-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}else if(Math.abs(cam.fov-62)>.1){cam.fov+=(62-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}}
+// ---------- the editor's free camera: Claude's set_camera, and lining the view up with an old photograph ----------
+// drag to look, WASD / the stick to move, E and Q (or the ▲▼ pad) to climb and sink, Shift to hurry; the player waits where they are
+const EDCAM={on:false,pos:new THREE.Vector3(),yaw:0,pitch:0,fov:62};
+function edCamOn(x,y,z,yaw,pitch,fov){if(AER.on)toggleAerial();EDCAM.on=true;EDCAM.pos.set(x,y,z);EDCAM.yaw=yaw;EDCAM.pitch=clamp(pitch,-1.5,1.5);EDCAM.fov=clamp(fov||EDCAM.fov||62,10,120);
+  const pad=document.getElementById('aerPad');if(pad)pad.style.display='flex';}
+function edCamOff(){if(!EDCAM.on)return;EDCAM.on=false;camera.far=QUAL[quality].far;camera.fov=62;camera.updateProjectionMatrix();CAM.lastCar=undefined;const pad=document.getElementById('aerPad');if(pad)pad.style.display='none';}
+function edCamUpdate(dt,cam){const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
+  EDCAM.yaw-=MOUSE_DX*SENS;EDCAM.pitch=clamp(EDCAM.pitch-MOUSE_DY*SENS*(INVERT?-1:1),-1.5,1.5);MOUSE_DX=MOUSE_DY=0;
+  const vy=(KEYS.KeyE||KEYS.PageUp||AER.up?1:0)-(KEYS.KeyQ||KEYS.PageDown||AER.down?1:0),p=EDCAM.pos,sp=(KEYS.ShiftLeft||KEYS.ShiftRight?4:1)*Math.max(6,p.y*.6);
+  const fx=-Math.sin(EDCAM.yaw),fz=-Math.cos(EDCAM.yaw);p.x=clamp(p.x+(fx*iz-fz*ix)*sp*dt,VIS.x0,VIS.x1);p.z=clamp(p.z+(fz*iz+fx*ix)*sp*dt,VIS.z0,VIS.z1);
+  const floor=isWater(p.x,p.z)?WATER_Y+.4:groundAt(p.x,p.z,p.y)+.3;p.y=clamp(p.y+vy*sp*dt,floor,1100);
+  const cp=Math.cos(EDCAM.pitch);cam.position.copy(p);cam.lookAt(p.x+fx*cp,p.y+Math.sin(EDCAM.pitch),p.z+fz*cp);
+  const far=p.y>60?2600:QUAL[quality].far;if(cam.fov!==EDCAM.fov||cam.far!==far){cam.fov=EDCAM.fov;cam.far=far;cam.updateProjectionMatrix();}}
 // ================= SKY, LIGHT, TIME =================
 const SKY={t:16.5,speed:1/60,day:0};let sun,hemi,amb,skyMesh,skyMat,pmrem,envRT=null,envTimer=0;
 const SKY_VS=`varying vec3 vDir;void main(){vDir=position;vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_Position=p.xyww;}`;
@@ -4387,7 +4491,7 @@ function buildNavyPier(){const z0=-884,z1=-836,x0=LAKE_X,x1=1350,y=CURB,br=C('#8
     for(let x=745;x<1236;x+=6)for(const zz of [a-.03,b+.03])box('glass',x,y+5.5,zz,3.2,2.6,.06,C('#2a3036'));}
   box('stone',720,y,(z0+z1)/2,36,17,z1-z0-2,lt);box('roof',720,y+17,(z0+z1)/2,37,.6,z1-z0-1);for(const zz of [z0+4,z1-4]){box('stone',720,y+17,zz,7,14,7,lt);cone('roof',720,y+31,zz,5.2,6,4);}
   box('stone',1296,y,(z0+z1)/2,86,13,z1-z0-2,lt);const d=new THREE.SphereGeometry(24,24,10,0,Math.PI*2,0,Math.PI/2);addGeo('roof',d,new THREE.Matrix4().makeTranslation(1296,y+13,(z0+z1)/2).scale(new THREE.Vector3(1,.55,1)),C('#6a7a70'));}
-function buildWorld2(){buildRiverZone();riverEdges();buildShore();buildYardExtras();buildPeristyle();buildStacks();buildNavyPier();spawnFishermen();}
+function buildWorld2(){srcScope(buildRiverZone);srcScope(riverEdges);srcScope(buildShore);srcScope(buildYardExtras);srcScope(buildPeristyle);srcScope(buildStacks);srcScope(buildNavyPier);srcScope(spawnFishermen);}
 // ---------------- sailboats on the lake ----------------
 function buildSailboats(){stdMat('sail',{roughness:.9,side:THREE.DoubleSide},false,false);
   for(let i=0;i<10;i++){const L=rnd(7,12),W=L*.3,hull=C(pick(['#f2efe6','#1d2a3a','#7a1c16','#2b3d2c','#e8dcc0','#f2efe6'])),sc=C(pick(['#f4efe2','#efe6d2','#f4efe2','#d9c9a6']));
@@ -4756,10 +4860,11 @@ async function init(){STATE.touch=(matchMedia&&matchMedia('(pointer: coarse)').m
   for(const c of GAR.cars)c.root.visible=true;for(let i=0;i<3;i++)await nextFrame();   // their first draws (geometry upload, shadow shaders) happen while it is still dark
   await revealGarage();$('garageLoad').classList.add('on');await nextFrame();
   await step(()=>buildFacadeAtlas());await step(()=>buildGroundTextures());await step(async()=>{await waitFonts();buildClockTex();buildSignTextures();buildReliefTex();});
-  await step(()=>{buildMaterials();buildMaterials2();});await step(()=>{cells=buildGround();});await step(()=>buildLandmarks());await step(()=>genCity(cells));await step(()=>buildBridges(scene));await step(()=>buildL());
-  await step(()=>buildFurniture(scene));await step(async()=>{await buildParkTrees();});await step(()=>{buildWater(scene);buildFountain(scene);});await step(async()=>{await buildHumanLibrary();buildProps();});await step(async()=>{await buildCarLibrary();buildCarPools();});
-  await step(()=>{buildFruitSystem(scene,4800);buildStalls(scene);buildClutter();});await step(()=>{buildWalkGraph();spawnSpecials();buildWorld2();setupAerialUI();});await step(()=>{finalizeBuckets(scene);buildPropPools();buildDebrisPools();makeClockHands(scene);buildMapImage();});
-  await step(()=>buildRoadNet());await step(()=>{buildTrams();buildLTrains();buildBoats();buildSailboats();buildTrenchTrain();});
+  // the world builders run in source scopes (see SOURCE SCOPES), so the Claude editor can name, find and rebuild what each one made
+  await step(()=>{buildMaterials();buildMaterials2();});await step(()=>{cells=srcScope(buildGround);});await step(()=>srcScope(buildLandmarks));await step(()=>srcScope(genCity,cells));await step(()=>srcScope(buildBridges,scene));await step(()=>srcScope(buildL));
+  await step(()=>srcScope(buildFurniture,scene));await step(()=>srcScope(buildParkTrees));await step(()=>{srcScope(buildWater,scene);srcScope(buildFountain,scene);});await step(async()=>{await buildHumanLibrary();srcScope(buildProps);});await step(async()=>{await buildCarLibrary();buildCarPools();});
+  await step(()=>{srcScope(buildFruitSystem,scene,4800);srcScope(buildStalls,scene);srcScope(buildClutter);});await step(()=>{buildWalkGraph();srcScope(spawnSpecials);srcScope(buildWorld2);setupAerialUI();});await step(()=>{finalizeBuckets(scene);buildPropPools();buildDebrisPools();makeClockHands(scene);buildMapImage();});
+  await step(()=>buildRoadNet());await step(()=>{srcScope(buildTrams);srcScope(buildLTrains);srcScope(buildBoats);srcScope(buildSailboats);srcScope(buildTrenchTrain);});
   await step(()=>{buildSky(scene);onResize();DROPS=new Particles(scene,4000,TX.drop,THREE.NormalBlending);PUFFS=new Particles(scene,1600,TX.puff,THREE.NormalBlending,1,{smoke:true,amb:PART_AMB});SPARKS=new Particles(scene,900,TX.glow,THREE.AdditiveBlending);buildHeadlights();buildLampFX();applyQualityShadows();buildShards();buildFareMarker();buildLandmarkDrops();});
   // the last corner of the Loop used to be one long blocking stretch (all the traffic, then every shader in one call):
   // now it is cut into small pieces with a frame between each, so the page never stops answering
@@ -4768,7 +4873,7 @@ async function init(){STATE.touch=(matchMedia&&matchMedia('(pointer: coarse)').m
   await step(()=>warmCity());await step(()=>warmRender());
   cityReady();}
 // the city is built: swap the loader under the cabs for RACE / DRIVE
-function cityReady(){CITY_READY=true;$('garageLoad').style.display='none';$('raceButton').style.display='';$('freeButton').style.display='';if(GAR.on&&!STATE.touch)$('raceButton').focus();}
+function cityReady(){CITY_READY=true;$('garageLoad').style.display='none';$('raceButton').style.display='';$('freeButton').style.display='';if(GAR.on&&!STATE.touch)$('raceButton').focus();dispatchEvent(new Event('tw-city-ready'));}
 // compile every shader program a scene needs a few at a time, handing the browser a frame between batches. three r128 builds
 // all of a scene's programs in one blocking call, and on a laptop GPU (ANGLE / D3D11) that can run long enough for the
 // browser to offer to kill the page. The program depends on the material and on the object (instanced, skinned), so one
@@ -4796,20 +4901,22 @@ function applyQualityShadows(){const Q=QUAL[quality];sun.shadow.mapSize.set(Q.sh
 function startGame(){AUD.init();AUD.resume();$('hud').style.display='block';STATE.started=true;if(STATE.touch){$('touch').style.display='block';setupTouch();}else{STATE.skipPause=true;lockPointer();}
   showToast(STATE.touch?'Taxi Wars \u00b7 Chicago, October 16, 1928':'Taxi Wars \u00b7 drag the mouse to look around, click to punch');last=performance.now();canvasEl.focus();}
 // ---------- main loop ----------
+// FRAME_HOOKS run after each rendered frame, while it is still in the drawing buffer (the Claude editor reads the canvas there)
+const FRAME_HOOKS=[];
 let last=performance.now(),simT=0,frameNo=0,fpsAcc=0,fpsN=0,fpsShow=60,perfT=0,perfLow=0;
 const _frus=new THREE.Frustum(),_pm=new THREE.Matrix4(),_sph=new THREE.Sphere();
 const dropLand=(x,y,z)=>{const f=fountainLand(x,y,z);if(f!==null)return f;if(isWater(x,z)){const wy=waterHeight(x,z);if(y<wy){if(chance(.03))splashRipple(x,z,.3,.03);return wy;}return false;}return groundAt(x,z);};
 const sparkLand=(x,y,z)=>groundAt(x,z);
 function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,(now-last)/1000));last=now;if(GAR.on){garageFrame(dt);return;}if(!STATE.started)return;
   if(STATE.paused){for(const k in PRESS)delete PRESS[k];MOUSE_DX=MOUSE_DY=0;if(STATE.touch)updateStickUI(0);return;}
-  frameNo++;simT+=dt;if(PRESS.KeyM)toggleAerial();fpsAcc+=dt;fpsN++;if(fpsAcc>=.5){fpsShow=Math.round(fpsN/fpsAcc);fpsAcc=0;fpsN=0;autoQuality();}
+  frameNo++;simT+=dt;if(PRESS.KeyM&&!EDCAM.on)toggleAerial();fpsAcc+=dt;fpsN++;if(fpsAcc>=.5){fpsShow=Math.round(fpsN/fpsAcc);fpsAcc=0;fpsN=0;autoQuality();}
   const P=PLAYER;const focus=P.car?P.car.pos:(P.h.ragdoll?_v1.set(P.h.ragdoll.p[0],0,P.h.ragdoll.p[2]):P.h.pos);const px=focus.x,pz=focus.z;
   // proximity lists
   NEAR_V.length=0;for(const v of VEHICLES){if(v.dead)continue;v.dist=Math.hypot(v.pos.x-px,v.pos.z-pz);if(v.dist<95)NEAR_V.push(v);}
   if((frameNo&7)===0)updateCabLods();
   NEAR_P.length=0;for(const p of PEDS){const h=p.h;if(h.attached||h.ragdoll||p.inCar)continue;if(Math.abs(h.pos.x-px)<48&&Math.abs(h.pos.z-pz)<48)NEAR_P.push(h);}if(!P.car&&!P.h.ragdoll)NEAR_P.push(P.h);
   // simulation
-  if(!AER.on)playerUpdate(dt);updateGame(dt);updateMounts(dt,px,pz);updateTraffic(dt,px,pz,simT);updateTrams(dt,px,pz);updateLTrains(dt,px,pz);updateBoats(dt,px,pz);
+  if(!AER.on&&!EDCAM.on)playerUpdate(dt);updateGame(dt);updateMounts(dt,px,pz);updateTraffic(dt,px,pz,simT);updateTrams(dt,px,pz);updateLTrains(dt,px,pz);updateBoats(dt,px,pz);
   updateBridge(dt);
   if(!AER.on)pedsUpdate(dt,px,pz,simT,camera);
   const rs=Math.ceil(dt/.0085);for(const r of AER.on?[]:RAGDOLLS.slice()){if(Math.hypot(r.p[0]-px,r.p[2]-pz)>110&&r.rest)continue;for(let i=0;i<rs;i++)r.step(dt/rs,NEAR_V);r.apply();if(r.p[1]<BED_Y-2)r.rest=true;}
@@ -4830,15 +4937,15 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   // time of day, city
   const S=updateSky(dt,px,pz,camera);updateFountain(dt,px,pz,S.night);updateWorld2(dt,px,pz,S);DROPS.update(dt,dropLand);PUFFS.update(dt);SPARKS.update(dt,sparkLand);updateShards(dt);updateSkid(dt);updateLoose(dt,px,pz);
   updateSignals(simT);updateClocks(SKY.t);UNI.time.value=simT;
-  if(STATE.touch)updateStickUI(dt);if(AER.on)aerialUpdate(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateHUD(dt,fpsShow);
+  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateHUD(dt,fpsShow);
   // audio
   let lnear=1e9,lx=0,lz=0,lsp=0;for(const T of LTRAINS)if(T.near<lnear){lnear=T.near;lx=T.cars[1].position.x;lz=T.cars[1].position.z;lsp=T.v;}
   const riverD=Math.abs(pz-(RIV.zN+RIV.zS)/2)-(RIV.zS-RIV.zN)/2,lakeD=LAKE_X-px;let moving=0;for(const v of NEAR_V)if(v.dist<60&&v!==P.car&&(v.aiSpeed>2||(v.speed&&v.speed()>2)))moving++;
   AUD.listen(camera.position.x,camera.position.z,CAM.yaw+Math.PI);AUD.update(dt,{thr:P.car?(P.thr||0):0,peds:NEAR_P.length,cars:moving,water:clamp(1-Math.min(riverD,lakeD)/45,0,1),lnear,lx,lz,lspeed:lsp,lake:clamp(1-lakeD/120,0,1)});
-  renderFrame(scene,camera,dt,S.night);for(const k in PRESS)delete PRESS[k];}
+  renderFrame(scene,camera,dt,S.night);for(const f of FRAME_HOOKS)f(dt);for(const k in PRESS)delete PRESS[k];}
 function autoQuality(){perfT+=.5;if(perfT<6||STATE.userQ)return;if(fpsShow<26)perfLow+=.5;else perfLow=Math.max(0,perfLow-.5);if(perfLow>=4&&quality!=='low'){quality=quality==='high'?'medium':'low';perfLow=0;$('qBtn').textContent='Quality: '+quality[0].toUpperCase()+quality.slice(1);applyQuality();showToast('Detail lowered to keep things smooth');}}
 // a loading error must stay readable: the status line lives under the black cover until the showroom lights come up
-function loadError(msg){const s=$('status');if(s)s.textContent=msg;const b=$('boot');if(b&&b.style.display!=='none'){const t=b.querySelector('span');t.textContent=msg;t.style.animation='none';t.style.opacity='1';t.style.letterSpacing='.08em';t.style.textTransform='none';}}
+function loadError(msg){if(window.TW_SRC&&window.TW_SRC.edited)msg+=' · Reload to run the original game (your Claude edits are kept).';const s=$('status');if(s)s.textContent=msg;const b=$('boot');if(b&&b.style.display!=='none'){const t=b.querySelector('span');t.textContent=msg;t.style.animation='none';t.style.opacity='1';t.style.letterSpacing='.08em';t.style.textTransform='none';}}
 window.addEventListener('error',e=>{if(!STATE.started)loadError('Something went wrong: '+(e.message||e.error));});
 requestAnimationFrame(frame);
 init().catch(e=>{console.error(e);loadError('Something went wrong while building the city: '+(e&&e.message?e.message:e));});
@@ -4854,14 +4961,874 @@ function warmStandIns(){const g=new THREE.BufferGeometry();g.setAttribute('posit
 
 
 
+<!--CLAUDE-EDITOR-BEGIN-->
+<script type="text/x-claude-editor" id="twEditor">'use strict';
+// ================= CLAUDE EDITOR (menu > Developer > Claude) =================
+// Talk to Claude from inside the game while you play, on your own Claude account: the game runs as an artifact on claude.ai, and
+// the page's Claude access (the `sample` capability) spends the viewer's plan, not API credits; the first request asks you to
+// Allow it. Click the prompt bar and the game is yours to point at: a tap on anything in the view tags it in the prompt (and
+// lights it up); × gives the game back. Every prompt carries a screenshot, the camera, where you are, what is tagged and on
+// screen, and the code that built it. Claude reads and edits the game's own source through page tools: the functions it changes
+// are swapped into the running game and the parts of the city it rebuilds come back in place, with no reload. Edits are saved
+// into the artifact (a new game.js; this view keeps running) and kept in this browser too.
+// Runs as a classic script after the game's (see loadEditor), so it sees the game's globals; everything here stays inside this
+// function except window.TWE.
+(()=>{
+if(window.TWE)return;
+// ================= BASICS =================
+const LS={get(k,d=''){try{const v=localStorage.getItem(k);return v===null?d:v;}catch(e){return d;}},set(k,v){try{localStorage.setItem(k,v);}catch(e){}},del(k){try{localStorage.removeItem(k);}catch(e){}}};
+const $e=(tag,cls,parent,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e;};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const frames=n=>new Promise(r=>{let k=0;const f=()=>{if(++k>=n)r();else requestAnimationFrame(f);};requestAnimationFrame(f);});
+const r1=v=>Math.round(v*10)/10,deg=r=>r*180/Math.PI,rad=d=>d*Math.PI/180;
+const compass=h=>['N','NE','E','SE','S','SW','W','NW'][Math.round((((h%360)+360)%360)/45)%8];
+const clip=(s,n)=>s.length>n?s.slice(0,n)+'…':s;
+const uniq=a=>[...new Set(a)];
+const bytes=s=>new TextEncoder().encode(s).length;
+// heading in the game: 0 = north (-z), 90 = east (+x); a view yaw (the camera looks along -sin yaw, -cos yaw) is minus the heading
+const headingOf=(dx,dz)=>((deg(Math.atan2(dx,-dz))%360)+360)%360;
+// a mutex for the tools that change things: Claude may call several tools in one round and they run at once
+let lockQ=Promise.resolve();
+const locked=fn=>{const p=lockQ.then(fn,fn);lockQ=p.catch(()=>{});return p;};
+
+// ================= CLAUDE ON CLAUDE.AI =================
+// window.claude exists only inside a claude.ai viewer. `sample` asks Claude as the viewer (their plan pays; the first call asks
+// them to Allow), `artifact` saves new files into this artifact, `downloads` offers a file to save. Each resolves null where it
+// cannot run, so every feature is built to be absent.
+const TIERS={quick:'Quick',default:'Balanced',complex:'Most capable'};
+const CFG={tier:TIERS[LS.get('twe.tier')]?LS.get('twe.tier'):'default'};
+const CAP={ready:null,sample:null,artifact:null,downloads:null,limits:null,onClaude:!!(window.claude&&typeof window.claude.use==='function')};
+function caps(){if(CAP.ready)return CAP.ready;
+  CAP.ready=(async()=>{if(!CAP.onClaude)return CAP;const use=n=>window.claude.use(n).catch(()=>null);
+    [CAP.sample,CAP.artifact,CAP.downloads]=await Promise.all([use('sample'),use('artifact'),use('downloads')]);
+    if(CAP.sample){try{CAP.limits=await CAP.sample.limits();}catch(e){CAP.limits=null;}}
+    return CAP;})();
+  return CAP.ready;}
+// what to tell the player for each way a request can fail (codes from the sample capability; never retried by the page)
+const SAMPLE_ERR={
+ not_granted:'Claude isn’t allowed on this page. Reload the game and choose Allow when claude.ai asks.',
+ sampling_disabled:'Claude isn’t available for this account or organization.',
+ not_declared:'This copy of the game can’t use Claude.',capability_disabled:'Claude isn’t available in this view.',capability_removed:'Claude isn’t available in this version of the Claude app.',
+ session_expired:'Your claude.ai session has expired. Sign in again, then reload the game.',
+ rate_limited:'You’ve reached your Claude usage limit for now, or too many requests are running. Try again in a little while.',
+ prompt_too_large:'That was more than Claude can read in one request. Remove a tag or a photo, or ask about a smaller part, and send again.',
+ images_unavailable:'This view can’t send pictures to Claude, so the next requests go without the screenshot.',
+ tools_unavailable:'This view can’t let Claude run the game’s tools, so Claude can answer but not edit.',
+ image_rejected:'One of the photos couldn’t be used. Try a different file.',
+ refused:'Claude declined that request. Ask for it in a different way.',
+ empty_completion:'Claude didn’t write an answer. Try asking for less at a time.',
+ upstream_error:'The connection to Claude broke off. Send again to retry.',
+ invalid_request:'The game sent Claude a request it couldn’t read (a bug in the editor).',transform_error:'The game couldn’t prepare the request (a bug in the editor).',queue_overflow:'Too many requests at once.'};
+const errCopy=e=>(e&&SAMPLE_ERR[e.code])||SAMPLE_ERR.upstream_error;
+
+// ================= RUNTIME ERRORS =================
+// every error the page throws, with its stack mapped back to lines of the game source (taxiwars-game.js is the game script, a
+// twe-patch-N.js is a function Claude swapped in: FILES knows the game line each one starts at)
+const FILES=new Map();let fileSeq=0;
+const ERR={list:[]};
+function mapFrame(file,line){if(/taxiwars-game\.js$/.test(file))return{line};const f=FILES.get(file.replace(/^.*\//,''));return f&&f.line0?{line:f.line0+line-2,patch:f.label}:null;}
+function mapStack(stack){if(!stack)return[];const out=[];
+  for(const ln of String(stack).split('\n')){const m=ln.match(/(?:at\s+(?:async\s+)?([^\s(]+)\s+\()?(?:([^\s@(]+)@)?(?:[^()\s]*\/)?([\w.-]+\.js):(\d+):\d+\)?/);if(!m)continue;
+    const fn=m[1]||m[2]||'(anonymous)',at=mapFrame(m[3],+m[4]);if(at)out.push(`${fn} (game line ${at.line}${at.patch?', live edit':''})`);else if(/taxiwars|twe-/.test(m[3]))out.push(`${fn} (${m[3]}:${m[4]})`);if(out.length>=5)break;}
+  return out;}
+function pushErr(err,where){const msg=String(err&&err.message!==undefined?err.message:err);const key=msg.slice(0,240),now=Date.now(),last=ERR.list[ERR.list.length-1];
+  if(last&&last.key===key){last.n++;last.t=now;return;}ERR.list.push({key,msg:clip(msg,400),stack:mapStack(err&&err.stack),where:where||'',t:now,t0:now,n:1});if(ERR.list.length>60)ERR.list.shift();}
+addEventListener('error',e=>pushErr(e.error||e.message,e.filename?e.filename.replace(/^.*\//,'')+':'+e.lineno:''));
+addEventListener('unhandledrejection',e=>pushErr(e.reason,'promise'));
+const errText=e=>`${e.msg}${e.n>1?` (×${e.n})`:''}${e.stack.length?' — at '+e.stack.join(' ← '):''}`;
+
+// ================= RUNNING NEW CODE =================
+// A patch is a classic script run in the page's global scope, so it sees and rebinds the game's top-level names (a function
+// declaration replaces the global function; `name=(value)` reassigns a top-level let). Inline first, as the loader ran the game
+// (TW_RUN.mode); where the page's security policy refuses inline scripts, a blob: script. Each gets a sourceURL, so errors in it
+// map back to game lines (FILES). Patches are strict code, like the game; line 2 of a patch is game line line0.
+async function runScript(code,label,line0){const file=label+'.js';FILES.set(file,{label,line0});const ran='__twe_ran_'+(++fileSeq);
+  const body=`'use strict';window.${ran}=1;\n${code}\n//# sourceURL=${file}`;let err=null;const onErr=e=>{if(!err)err=e.error||new Error(e.message);};
+  addEventListener('error',onErr);
+  try{if((window.TW_RUN&&window.TW_RUN.mode)!=='blob'){const r=document.createElement('script');r.textContent=body;document.head.appendChild(r);r.remove();}
+    if(!window[ran]){const url=URL.createObjectURL(new Blob([body],{type:'text/javascript'}));FILES.set(url.replace(/^.*\//,''),{label,line0});
+      await new Promise(res=>{const r=document.createElement('script');r.src=url;r.onload=r.onerror=()=>{r.remove();URL.revokeObjectURL(url);res();};document.head.appendChild(r);});}}
+  finally{removeEventListener('error',onErr);}
+  if(!err&&!window[ran])err=new Error('The page would not run the new code (its security policy blocked it).');
+  delete window[ran];return err;}
+
+// ================= THE GAME'S SOURCE =================
+// The text Claude reads and edits is the game script as it runs now (TW_SRC.text: the artifact's game.js or the page's own
+// script, or the edited copy the loader ran from this browser). Line numbers are its lines, the same numbers taxiwars-game.js
+// shows in error stacks.
+const TWS=window.TW_SRC||{base:'',shipped:'',text:'',edited:false,skipped:null,saved:null};
+const SRCM={text:TWS.text,base:TWS.base,ver:0,pubVer:0,sha:null,undo:[],redo:[],log:(TWS.edited&&TWS.saved&&TWS.saved.log)||[],_l:null,_lv:-1,_ix:null,_ixv:-1,_sec:null,_secv:-1};
+if(TWS.edited)SRCM.pubVer=-1;// the text running is a local copy the artifact doesn't have yet
+function srcLines(){if(SRCM._lv!==SRCM.ver){SRCM._l=SRCM.text.split('\n');SRCM._lv=SRCM.ver;}return SRCM._l;}
+function lineOf(text,pos){let n=1;for(let i=text.indexOf('\n');i>=0&&i<pos;i=text.indexOf('\n',i+1))n++;return n;}
+// top-level declarations: functions, classes, and each name a let / const / var statement declares; anything else is a 'stmt'
+function patternNames(p){if(!p)return[];switch(p.type){case'Identifier':return[p.name];case'ObjectPattern':return p.properties.flatMap(q=>patternNames(q.type==='RestElement'?q.argument:q.value));
+  case'ArrayPattern':return p.elements.flatMap(patternNames);case'RestElement':return patternNames(p.argument);case'AssignmentPattern':return patternNames(p.left);default:return[];}}
+function indexProgram(ast){const decls=[],byName=new Map();
+  for(const n of ast.body){const L={line:n.loc.start.line,endLine:n.loc.end.line};
+    if(n.type==='FunctionDeclaration'||n.type==='ClassDeclaration'){const d={kind:n.type==='ClassDeclaration'?'class':'function',name:n.id.name,start:n.start,end:n.end,...L,node:n};decls.push(d);byName.set(d.name,d);}
+    else if(n.type==='VariableDeclaration'){for(const v of n.declarations)for(const nm of patternNames(v.id)){const d={kind:n.kind,name:nm,start:n.start,end:n.end,dStart:v.start,dEnd:v.end,init:v.init?[v.init.start,v.init.end]:null,simple:v.id.type==='Identifier',...L,node:n};decls.push(d);byName.set(nm,d);}}
+    else decls.push({kind:'stmt',name:null,start:n.start,end:n.end,...L,node:n});}
+  return{decls,byName};}
+const ACORN_URL='https://cdn.jsdelivr.net/npm/acorn@8.18.0/dist/acorn.mjs';let ACORN=null;
+async function acorn(){if(ACORN)return ACORN;try{ACORN=await import(ACORN_URL);}catch(e){throw new Error('Could not load the code parser (acorn) from cdn.jsdelivr.net: '+e.message);}return ACORN;}
+const parseSrc=async(text,comments)=>(await acorn()).parse(text,{ecmaVersion:'latest',sourceType:'script',locations:true,onComment:comments});
+async function srcIndex(){if(SRCM._ixv===SRCM.ver)return SRCM._ix;SRCM._ix=indexProgram(await parseSrc(SRCM.text));SRCM._ixv=SRCM.ver;return SRCM._ix;}
+// the top-level declaration a line belongs to
+function declAt(ix,line){let lo=0,hi=ix.decls.length-1,best=null;while(lo<=hi){const m=(lo+hi)>>1,d=ix.decls[m];if(d.line<=line){best=d;lo=m+1;}else hi=m-1;}return best&&line<=best.endLine?best:null;}
+// section headers: // ======= TITLE ======= (major) and // ------- title ------- (minor), each running to the next header of its rank or above
+function srcSections(){if(SRCM._secv===SRCM.ver)return SRCM._sec;const L=srcLines(),out=[];
+  for(let i=0;i<L.length;i++){const a=L[i].match(/^\s*\/\/ ?={3,} ?(.+?) ?={3,}\s*$/);if(a){out.push({major:true,title:a[1].trim(),line:i+1});continue;}
+    const b=L[i].match(/^\s*\/\/ ?-{4,} ?(.+?) ?-{4,}\s*$/);if(b)out.push({major:false,title:b[1].trim(),line:i+1});}
+  for(let i=0;i<out.length;i++){let e=L.length;for(let j=i+1;j<out.length;j++)if(out[j].major||!out[i].major){e=out[j].line-1;break;}out[i].end=e;}
+  SRCM._sec=out;SRCM._secv=SRCM.ver;return out;}
+function sectionAt(line){let s=null,maj=null;for(const x of srcSections()){if(x.line>line)break;if(x.major)maj=x;if(line<=x.end)s=x;}return{section:s,major:maj};}
+async function codeMap(){const ix=await srcIndex(),secs=srcSections(),L=srcLines(),out=[];
+  const names=(a,b)=>uniq(ix.decls.filter(d=>d.line>=a&&d.line<=b&&(d.kind==='function'||d.kind==='class'||/^[A-Z][A-Z0-9_]{2,}$/.test(d.name||''))).map(d=>d.kind==='function'?d.name+'()':d.kind==='class'?'class '+d.name:d.name));
+  if(secs.length&&secs[0].line>1){const n=names(1,secs[0].line-1);if(n.length)out.push(`L1-${secs[0].line-1} (top): ${n.join(', ')}`);}
+  for(const s of secs){const n=names(s.line,s.end);out.push(`${s.major?'':'  '}L${s.line}-${s.end} ${s.major?s.title:'· '+s.title}${n.length?': '+n.join(', '):''}`);}
+  return`The game source: ${L.length} lines${SRCM.log.length?`, with ${SRCM.log.length} live edit${SRCM.log.length>1?'s':''}`:''}. Sections (line ranges) and their top-level declarations:\n`+out.join('\n');}
+// read_code: by name, by section, or by lines; a tool result must stay under 32 KB, so it is cut at ~24 KB with a note
+async function readCode(o){const L=srcLines(),ix=await srcIndex();let a,b,what;
+  if(o.name){const name=String(o.name),d=ix.byName.get(name);
+    if(d){a=d.line;b=d.endLine;what=`${d.kind} ${d.name}`;}
+    else{const re=new RegExp(`(?:function\\s*\\*?\\s*|\\b(?:const|let|var)\\s+|[{,;]\\s*)${name.replace(/[^\w$]/g,'').replace(/\$/g,'\\$')}\\s*(?:=|\\()`);const i=L.findIndex(l=>re.test(l));
+      if(i<0)return`"${name}" is not a top-level name, and no definition of it was found. Try search_code.`;const d2=declAt(ix,i+1);a=i+1;b=d2?d2.endLine:Math.min(L.length,i+40);what=`${name} (defined on line ${i+1}${d2&&d2.name?', inside '+d2.name:''})`;}}
+  else if(o.section){const norm=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),q=norm(o.section),s=srcSections().find(x=>norm(x.title).includes(q));
+    if(!s)return`No section matches "${o.section}". Call code_map for the list.`;a=s.line;b=s.end;what=`section ${s.title}`;}
+  else{a=Math.max(1,Number(o.start_line)|0||1);b=Math.min(L.length,Number(o.end_line)|0||a+120);what='lines';}
+  if(b<a)return'end_line is before start_line.';
+  let out='',n=a,size=0;for(;n<=b;n++){const ln=`${String(n).padStart(5)}| ${L[n-1]}\n`;if(size+ln.length>24000&&n>a)break;out+=ln.length>24000?ln.slice(0,24000)+'…[line cut]\n':ln;size+=ln.length;}
+  return`${what}, lines ${a}-${n-1} of ${L.length}${n<=b?` (cut off: read from start_line ${n} to go on)`:''}:\n${out}`;}
+async function searchCode(o){const L=srcLines(),ix=await srcIndex(),max=Math.min(80,Math.max(1,Number(o.max_results)|0||30)),q=String(o.query||'');if(!q)throw new Error('query is empty');let re;
+  try{re=new RegExp(o.regex?q:q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),o.case_sensitive?'':'i');}catch(e){throw new Error('Bad regular expression: '+e.message);}
+  const out=[];let total=0,size=0;
+  for(let i=0;i<L.length;i++){const m=re.exec(L[i]);if(!m)continue;total++;if(out.length>=max||size>12000)continue;const line=L[i];let snip=line;
+    if(line.length>240){const a=Math.max(0,m.index-100),b=Math.min(line.length,m.index+m[0].length+100);snip=(a>0?'…':'')+line.slice(a,b)+(b<line.length?'…':'');}
+    const d=declAt(ix,i+1),row=`${i+1}${d&&d.name?` [${d.name}]`:''}: ${snip}`;out.push(row);size+=row.length;}
+  return out.length?out.join('\n')+(total>out.length?`\n(${total-out.length} more matches not shown)`:''):`No matches for ${o.regex?'/'+q+'/':'"'+q+'"'}.`;}
+
+// ================= LIVE EDITS =================
+// a changed class keeps its identity (instances, instanceof): its new methods, accessors and statics are copied onto the live class
+function classPatch(d,text){const n=d.node,body='class'+text.slice(n.id.end,n.end);
+  return`{const N=(${body}),O=${d.name};for(const k of Reflect.ownKeys(N.prototype))if(k!=='constructor')Object.defineProperty(O.prototype,k,Object.getOwnPropertyDescriptor(N.prototype,k));`+
+    `for(const k of Reflect.ownKeys(N))if(!['length','name','prototype'].includes(k))Object.defineProperty(O,k,Object.getOwnPropertyDescriptor(N,k));}`;}
+const ctorText=(n,text)=>n.body.body.filter(m=>m.kind==='constructor'||m.type==='PropertyDefinition').map(m=>text.slice(m.start,m.end)).join('\n');
+// errors seen in the last half minute don't count against a patch
+const recentKeys=()=>{const t=Date.now()-30000;return new Set(ERR.list.filter(e=>e.t>t).map(e=>e.key));};
+async function watchNewErrors(before,ms){const t0=Date.now();await sleep(ms);return ERR.list.filter(e=>e.t0>=t0-5&&!before.has(e.key));}
+// Compare the running source with the new one, declaration by declaration, and apply what can go live. Returns a report; on
+// errors it has already put the running game back on the old code.
+async function hotApply(oldText,newText,newAst){const oldIx=await srcIndex(),newIx=indexProgram(newAst);
+  const P=[],rep={swapped:[],classes:[],assigned:[],added:[],builders:[],loadOnly:[],needsRestart:[],removed:[],notes:[],newIx};const seen=new Set();
+  for(const d of newIx.decls){if(!d.name)continue;const o=oldIx.byName.get(d.name);
+    if(!o){if(seen.has(d.start))continue;seen.add(d.start);P.push({kind:'add',code:newText.slice(d.start,d.end),line:d.line,name:d.kind==='function'||d.kind==='class'?d.name:newIx.decls.filter(x=>x.start===d.start).map(x=>x.name).join(', ')});continue;}
+    const isVar=d.kind==='let'||d.kind==='var'||d.kind==='const';
+    const nt=isVar?newText.slice(d.dStart,d.dEnd):newText.slice(d.start,d.end),ot=o.dStart!==undefined?oldText.slice(o.dStart,o.dEnd):oldText.slice(o.start,o.end);if(nt===ot)continue;
+    if(d.kind==='function'&&o.kind==='function')P.push({kind:'function',code:nt,name:d.name,line:d.line,old:ot,oldLine:o.line});
+    else if(d.kind==='class'&&o.kind==='class'){P.push({kind:'class',code:classPatch(d,newText),name:d.name,line:d.line,old:classPatch(o,oldText),oldLine:o.line});
+      if(ctorText(d.node,newText)!==ctorText(o.node,oldText))rep.notes.push(`class ${d.name}: its constructor or fields changed, which reaches only objects made after restart_world (its methods are live now)`);}
+    else if((d.kind==='let'||d.kind==='var')&&o.kind===d.kind&&d.simple){const ni=d.init?newText.slice(d.init[0],d.init[1]):'undefined',oi=o.init?oldText.slice(o.init[0],o.init[1]):'undefined';
+      if(ni!==oi)P.push({kind:'assign',code:`${d.name}=(${ni});`,name:d.name,line:d.line,old:`${d.name}=(${oi});`});}
+    else rep.needsRestart.push(`${d.kind} ${d.name} (line ${d.line})`);}
+  for(const o of oldIx.decls)if(o.name&&!newIx.byName.has(o.name))rep.removed.push(o.name);
+  const stmts=new Map();for(const o of oldIx.decls)if(o.kind==='stmt'){const t=oldText.slice(o.start,o.end);stmts.set(t,(stmts.get(t)||0)+1);}
+  for(const d of newIx.decls)if(d.kind==='stmt'){const t=newText.slice(d.start,d.end),c=stmts.get(t)||0;if(c>0)stmts.set(t,c-1);else rep.needsRestart.push(`the top-level statement on line ${d.line} (${clip(t.replace(/\s+/g,' '),70)})`);}
+  // apply: additions first (changed code may use them), then functions, classes, assignments; stop at the first that fails
+  const order={add:0,function:1,class:2,assign:3};P.sort((a,b)=>order[a.kind]-order[b.kind]);
+  const before=recentKeys(),done=[];let fail=null;
+  for(const p of P){const err=await runScript(p.code,'twe-patch-'+(fileSeq+1),p.line);if(err){fail={p,err};break;}done.push(p);}
+  const undoLive=async()=>{for(const p of done.slice().reverse())if(p.old)await runScript(p.old,'twe-undo-'+(fileSeq+1),p.oldLine||p.line);};
+  if(fail){await undoLive();return{rolledBack:true,errors:[`${fail.p.kind} ${fail.p.name} (line ${fail.p.line}) threw while it was applied: ${fail.err.message}`]};}
+  // the running game then gets a moment: new errors (per-frame code throwing, say) put it back on the old code
+  if(done.some(p=>p.kind!=='add')){const errs=await watchNewErrors(before,650);if(errs.length){await undoLive();return{rolledBack:true,errors:errs.map(errText)};}}
+  const builders=new Set();for(const s of SRC.byId.values())if(!s.dead&&s.fn)builders.add(s.fn);
+  for(const p of done){const tag=`${p.name} (line ${p.line})`;
+    if(p.kind==='function'){rep.swapped.push(tag);if(builders.has(p.name))rep.builders.push(p.name);else if(/^(build|make|gen|init|setup|spawn|bake)[A-Z]/.test(p.name))rep.loadOnly.push(p.name);}
+    else if(p.kind==='class')rep.classes.push(tag);else if(p.kind==='assign')rep.assigned.push(tag);else rep.added.push(tag);}
+  return rep;}
+function reportText(rep,warn){const out=[],li=(h,a)=>{if(a.length)out.push(h+'\n'+a.map(x=>'- '+x).join('\n'));};
+  li('Live in the running game now:',[...rep.swapped.map(x=>'swapped function '+x),...rep.classes.map(x=>'patched class '+x+' (methods)'),...rep.assigned.map(x=>'re-assigned '+x),...rep.added.map(x=>'added '+x)]);
+  li('Not visible yet:',[...rep.builders.map(n=>`${n} is a world builder: call rebuild (scope "${n}", or a part or building it made) to see the change`),
+    ...rep.loadOnly.map(n=>`${n} may run only at load: if so, re-run what it sets up with run_js (when that is safe) or restart_world`),
+    ...rep.needsRestart.map(x=>`${x} changed: it is read at load, so it takes effect after restart_world (or apply the new value to live objects with run_js)`),...rep.notes]);
+  if(rep.removed.length)out.push(`Removed from the source (still defined in this session until restart_world): ${rep.removed.join(', ')}`);
+  if(warn&&warn.length)li('Warnings:',warn);
+  return out.join('\n\n')||'The edit changed nothing that runs (comments or whitespace only).';}
+// the old bug in this file: a // comment written into the middle of a long line, commenting out the code after it
+const CODEISH=/(;\s*[A-Za-z_$][\w$.]*\s*[(=[.])|(\bconst\s+[\w$]+\s*=)|(\blet\s+[\w$]+\s*=)|(\bfunction\s+[\w$]+\s*\()|(\bfor\s*\()|(\bif\s*\()|(=>\s*\{)|(\}\s*(const|let|function|for|if|return)\b)|(\breturn\s*[{(\w])/;
+function swallowWarnings(comments,newText,a,b){const out=[];for(const c of comments){if(c.type!=='Line'||c.end<a||c.start>b)continue;if(CODEISH.test(c.value))out.push(`line ${lineOf(newText,c.start)}: this // comment seems to contain code (everything after // on a line is a comment): "//${clip(c.value,120)}"`);}return out;}
+// edit_code: exact, unique replacements applied in order; the result must parse; then it goes live (or is rolled back) and is kept
+async function editCode(o){const edits=o.edits;if(!Array.isArray(edits)||!edits.length)throw new Error('edits must be a non-empty list of {old_string, new_string}.');
+  let text=SRCM.text;
+  for(let k=0;k<edits.length;k++){const e=edits[k]||{},tag=edits.length>1?`edit ${k+1}: `:'';
+    if(typeof e.old_string!=='string'||typeof e.new_string!=='string'||!e.old_string)throw new Error(tag+'old_string and new_string must be strings, old_string not empty.');
+    if(e.old_string===e.new_string)throw new Error(tag+'old_string and new_string are the same.');
+    const i=text.indexOf(e.old_string);
+    if(i<0)throw new Error(`${tag}old_string was not found in the current source${k?' (after the edits before it)':''}.${/^\s*\d+\|/m.test(e.old_string)?' It starts with a line-number prefix from read_code; copy only the code.':' Re-read the lines with read_code and copy them exactly, whitespace included.'} Nothing was changed.`);
+    const j=text.indexOf(e.old_string,i+1);if(j>=0)throw new Error(`${tag}old_string occurs more than once (lines ${lineOf(text,i)} and ${lineOf(text,j)}); include more of the surrounding code so it is unique. Nothing was changed.`);
+    text=text.slice(0,i)+e.new_string+text.slice(i+e.old_string.length);}
+  const comments=[];let ast;
+  try{ast=await parseSrc(text,comments);}catch(err){if(!err.loc)throw err;const L=text.split('\n');throw new Error(`The edited source does not parse: ${err.message}\n${err.loc.line}| ${clip(L[err.loc.line-1]||'',300)}\nNothing was changed.`);}
+  let a=0;const old=SRCM.text;while(a<old.length&&a<text.length&&old[a]===text[a])a++;let b1=old.length,b2=text.length;while(b1>a&&b2>a&&old[b1-1]===text[b2-1]){b1--;b2--;}
+  const warn=swallowWarnings(comments,text,a,b2);
+  const rep=await hotApply(old,text,ast);
+  if(rep.rolledBack)throw new Error(`The edit was rolled back: the running game threw\n${rep.errors.map(x=>'- '+x).join('\n')}\nThe source is unchanged. Fix the cause and edit again.`);
+  const summary=clip(String(o.summary||'edit'),120);commitSource(text,summary);SRCM._ix=rep.newIx;SRCM._ixv=SRCM.ver;
+  return{text:reportText(rep,warn)+`\n\nKept as live edit #${SRCM.log.length} (${summary}).`,lines:[lineOf(text,a),lineOf(text,b2)],rebuild:rep.builders};}
+function commitSource(text,summary){SRCM.undo.push({text:SRCM.text,summary});if(SRCM.undo.length>12)SRCM.undo.shift();SRCM.redo.length=0;SRCM.text=text;SRCM.ver++;SRCM.log.push({summary,t:Date.now()});
+  TWS.text=text;saveLocal();if(UI.ready)UI.refreshEdits();}
+// undo / redo a whole edit: the running game gets the old text the same way (functions swapped back; rebuilds are yours to redo)
+async function stepHistory(back){const from=back?SRCM.undo:SRCM.redo,to=back?SRCM.redo:SRCM.undo;const h=from.pop();if(!h)return null;
+  const rep=await hotApply(SRCM.text,h.text,await parseSrc(h.text));if(rep.rolledBack){from.push(h);throw new Error(rep.errors.join('\n'));}
+  to.push({text:SRCM.text,summary:h.summary});SRCM.text=h.text;SRCM.ver++;SRCM._ix=rep.newIx;SRCM._ixv=SRCM.ver;TWS.text=h.text;
+  if(back)SRCM.log.pop();else SRCM.log.push({summary:h.summary,t:Date.now()});saveLocal();return{summary:h.summary,rep};}
+
+// ================= KEEPING EDITS =================
+// In this browser at once (IndexedDB, keyed by the game.js the edits were made on: the loader runs the copy next time), and in the
+// artifact itself after each answer that changed code (a new game.js; the files form keeps this view running).
+// The local copy lists every game.js it may run on (bases): the one it was made on and each version this page saved since, so a
+// reload runs it whichever of those versions the frame serves. A game.js from anywhere else (a new upload) outranks it.
+let saveQ=Promise.resolve();
+SRCM.bases=uniq([...((TWS.edited&&TWS.saved&&TWS.saved.bases)||[]),SRCM.base].filter(Boolean));
+function saveLocal(){const rec=SRCM.text===TWS.shipped&&!SRCM.log.length?null:{bases:SRCM.bases.slice(-4),base:SRCM.base,text:SRCM.text,log:SRCM.log,t:Date.now()};
+  saveQ=saveQ.then(()=>window.TW_DB?(rec?TW_DB.set('source',rec):TW_DB.del('source')):null).catch(e=>console.warn('Could not keep the edited source in this browser',e));return saveQ;}
+async function discardEdits(){SRCM.log=[];SRCM.bases=[SRCM.base];if(window.TW_DB)await TW_DB.del('source').catch(()=>{});}
+async function sha256(text){const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));return[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+const unsaved=()=>SRCM.ver!==SRCM.pubVer&&SRCM.text!==TWS.shipped;
+async function publishSource(){await caps();if(!CAP.artifact)return{ok:false,why:'This view can’t save into the artifact; the edits are kept in this browser.'};
+  if(!unsaved())return{ok:true,why:'Nothing new to save.'};
+  const text=SRCM.text,ver=SRCM.ver;if(SRCM.sha===null)SRCM.sha=await sha256(TWS.shipped);
+  try{const r=await CAP.artifact.publish({'game.js':{content:text,contentType:'text/javascript',ifMatch:SRCM.sha}});
+    SRCM.sha=(r.shas&&r.shas['game.js'])||await sha256(text);SRCM.pubVer=ver;
+    // the artifact now ships this text: the local copy also answers to it, so a reload runs the edits whichever version it gets
+    TWS.shipped=text;if(window.TW_HASH){SRCM.base=TW_HASH(text);SRCM.bases=uniq([...SRCM.bases,SRCM.base]);}TWS.base=SRCM.base;await saveLocal();return{ok:true,why:'Saved into the artifact.'};}
+  catch(e){const why={not_writer:'You can view this artifact but not save it; the edits are kept in this browser.',not_granted:'Saving isn’t allowed in this view; the edits are kept in this browser.',
+      conflict:'Someone saved a newer version first; the game is reloading to it.',capability_disabled:'Saving isn’t available here (a public link?); the edits are kept in this browser.',
+      too_large:'The game is too large to save.',rate_limited:'Saving too often; it will try again after the next answer.'}[e&&e.code]||('Saving failed: '+((e&&e.message)||e));return{ok:false,why,code:e&&e.code};}}
+
+// ================= WHAT IS WHERE =================
+// The source scopes (see SOURCE SCOPES in the game): each builder and its parts, each building, with the vertex ranges it wrote,
+// its box, colliders and scene objects. A tap maps back to the innermost scope that wrote the triangle under it.
+const FRIENDLY={buildGround:'Streets & ground',genCity:'City blocks',buildLandmarks:'Landmarks',buildBridges:'Bridges',buildL:'The “L” (elevated railway)',buildFurniture:'Street furniture',
+ buildParkTrees:'Park trees',buildWater:'Water',buildFountain:'Buckingham Fountain',buildProps:'Street props',buildFruitSystem:'Fruit',buildStalls:'Market stalls',buildClutter:'Street clutter',
+ spawnSpecials:'Special characters',buildWorld2:'Outer districts',buildRiverZone:'River corridor',riverEdges:'River walls & edges',buildShore:'Lakefront',buildYardExtras:'Rail yard',
+ buildPeristyle:'Peristyle',buildStacks:'Smokestacks',buildNavyPier:'Navy Pier',spawnFishermen:'Fishermen',buildTrams:'Streetcars',buildLTrains:'“L” trains',buildBoats:'River boats',
+ buildSailboats:'Sailboats',buildTrenchTrain:'Freight train'};
+const STYLES={redBrick:'red brick',buff:'buff brick',brownstone:'brownstone',romanesque:'Romanesque',industrial:'industrial',hotel:'hotel',fields:'department-store',granite:'granite'};
+const isBuilding=s=>!!(s.info&&s.info.label==='Building');
+function scopeName(s){if(isBuilding(s))return`${s.info.floors}-storey ${STYLES[s.info.style]||s.info.style} building`;return s.mark?s.name:(FRIENDLY[s.name]||s.name);}
+function scopeChain(s){const a=[];for(let t=s;t;t=t.parent)a.unshift(t.mark?`“${t.name}”`:isBuilding(t)?'genBuilding':t.name);return a.join(' › ');}
+function allScopes(){const out=[],walk=a=>{for(const s of a){if(s.dead)continue;out.push(s);walk(s.kids);}};walk(SRC.roots);return out;}
+function findScope(q){q=String(q==null?'':q).trim();if(!q)return null;if(/^#?\d+$/.test(q)){const s=SRC.byId.get(+q.replace('#',''));return s&&!s.dead?s:null;}
+  const lc=q.toLowerCase(),m=allScopes().filter(s=>s.name.toLowerCase()===lc||scopeName(s).toLowerCase()===lc);if(m.length===1)return m[0];
+  if(m.length>1)throw new Error(`${m.length} scopes are called "${q}"; pass one id instead: ${m.slice(0,10).map(s=>'#'+s.id).join(', ')}${m.length>10?' …':''} (tagged things and find_assets show ids).`);return null;}
+function placeName(x,z){let s='';try{const r=streetNameAt(x,z),a=r[0],b=r[1];if(a&&b)s=r[2]<16?`on ${a.n} at ${b.n}`:`near ${a.n} & ${b.n}`;else if(a)s=`near ${a.n}`;}catch(e){}
+  let d='';try{d=districtAt(x,z);}catch(e){}return[s,d].filter(Boolean).join(', ');}
+const P3=v=>`(${r1(v.x)}, ${r1(v.y)}, ${r1(v.z)})`;
+const boxText=b=>b?`x ${r1(b.min.x)}..${r1(b.max.x)}, y ${r1(b.min.y)}..${r1(b.max.y)}, z ${r1(b.min.z)}..${r1(b.max.z)}`:'no box';
+// the lines of code that built a scope: a part's srcMark(...) up to the next part, a builder or genBuilding's function
+async function scopeCode(s){const ix=await srcIndex(),L=srcLines();
+  if(s.mark){const q=`srcMark('${s.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')`;const i=L.findIndex(l=>l.includes(q));
+    if(i>=0){const d=declAt(ix,i+1),end=d?d.endLine:Math.min(L.length,i+40);let e=end;for(let k=i+1;k<end;k++)if(L[k].includes('srcMark(')){e=k;break;}return{line:i+1,endLine:e,label:`the part “${s.name}” in ${d&&d.name?d.name:'its builder'}`};}
+    const p=s.parent&&s.parent.fn&&ix.byName.get(s.parent.fn);
+    if(p)for(let k=p.line-1;k<p.endLine;k++)if(/srcMark\(\s*[^'"\s]/.test(L[k]))return{line:k+1,endLine:Math.min(p.endLine,k+14),label:`the loop in ${p.name} that builds each part like “${s.name}”`};}
+  if(s.fn){const d=ix.byName.get(s.fn);if(d)return{line:d.line,endLine:d.endLine,label:isBuilding(s)?`${d.name}, the generator this building came from (floors ${s.info.floors}, style ${s.info.style})`:`${d.kind} ${d.name}`};}
+  return null;}
+
+// ================= LIVE THINGS =================
+function entityOf(root){const P=PLAYER;
+  if(P.h&&root===P.h.group)return{kind:'player',name:'You (the player)',pos:P.h.pos,code:'class Human, PLAYER'};
+  for(const v of VEHICLES)if(v.root===root)return{kind:v.mode==='tram'?'streetcar':'vehicle',name:(v===P.car?'Your ':'')+((v.md&&v.md.name)||v.kind),pos:v.pos,code:v.wagon?'buildWagon, class Vehicle':'the car models (CITY AUTOMOBILES), class Vehicle'};
+  for(const p of PEDS)if(p.h&&p.h.group===root)return{kind:'person',name:(PEOPLE_KIND_NAMES[p.kind]||p.kind||'Person'),pos:p.h.pos,code:'makeNPC, class Human, PEDESTRIANS'};
+  for(const m of MOUNTS)if(m.h&&m.h.group===root)return{kind:'horse',name:m.name||'Horse',pos:{x:m.x,y:0,z:m.z},code:'class Mount, SADDLE HORSES'};
+  for(const T of LTRAINS)if(T.cars.includes(root))return{kind:'train',name:'“L” train car',pos:root.position,code:'buildLCar, buildLTrains, updateLTrains'};
+  for(const b of BOATS)if(b.g===root)return{kind:'boat',name:`River boat${b.kind?' ('+b.kind+')':''}`,pos:root.position,code:'buildBoats, updateBoats'};
+  for(const b of SAILBOATS)if(b.g===root)return{kind:'boat',name:'Sailboat',pos:root.position,code:'buildSailboats'};
+  return null;}
+
+// ================= PICKING =================
+// Only meshes whose bounding spheres the ray enters are tested, nearest first, and the search stops once a hit is closer than the
+// next sphere: a tap costs a handful of meshes, not the city.
+const SKIP=new Set(),_ray=new THREE.Raycaster(),_ndc=new THREE.Vector2(),_sph=new THREE.Sphere(),_pv=new THREE.Vector3();
+function pickable(o){if(!o.isMesh||SKIP.has(o)||(typeof skyMesh!=='undefined'&&o===skyMesh))return false;const m=Array.isArray(o.material)?o.material[0]:o.material;return!!m&&m.visible!==false&&m.blending!==THREE.AdditiveBlending;}
+function sphereEntry(r,s){const oc=_pv.subVectors(s.center,r.origin),t=oc.dot(r.direction),d2=oc.lengthSq()-t*t,r2=s.radius*s.radius;if(d2>r2)return null;const th=Math.sqrt(r2-d2);return t+th<0?null:Math.max(0,t-th);}
+function pickAt(cx,cy){const rc=canvasEl.getBoundingClientRect();_ndc.set((cx-rc.left)/rc.width*2-1,-(cy-rc.top)/rc.height*2+1);camera.updateMatrixWorld();_ray.setFromCamera(_ndc,camera);_ray.far=camera.far;
+  const cands=[];scene.traverseVisible(o=>{if(!pickable(o)||!o.geometry)return;let s;
+    if(o.isInstancedMesh||o.isBatchedMesh){if(!o.boundingSphere)o.computeBoundingSphere();s=o.boundingSphere;}else{if(!o.geometry.boundingSphere)o.geometry.computeBoundingSphere();s=o.geometry.boundingSphere;}
+    if(!s)return;_sph.copy(s).applyMatrix4(o.matrixWorld);const d=sphereEntry(_ray.ray,_sph);if(d!==null&&d<_ray.far)cands.push({o,d});});
+  cands.sort((a,b)=>a.d-b.d);let best=null;const hits=[];
+  for(const c of cands){if(best&&c.d>best.distance)break;hits.length=0;try{c.o.raycast(_ray,hits);}catch(e){continue;}for(const h of hits)if(!best||h.distance<best.distance)best=h;}
+  return best;}
+// mesh -> the vertex ranges scopes wrote into it (rebuilt when scopes change: a live rebuild makes new meshes)
+let TRI=null;
+function triIndex(){if(TRI&&TRI.seq===SRC.seq)return TRI;const by=new Map();
+  for(const s of SRC.byId.values()){if(s.dead)continue;for(const r of s.ranges){const m=r.g.mesh;if(!m)continue;let a=by.get(m);if(!a)by.set(m,a=[]);a.push({v0:r.v0,n:r.n,s});}}
+  for(const a of by.values())a.sort((x,y)=>x.v0-y.v0||y.n-x.n);return(TRI={by,seq:SRC.seq});}
+function scopeOfTriangle(m,face){const a=triIndex().by.get(m);if(!a||face==null)return null;const ix=m.geometry.index,v=ix?ix.getX(face*3):face*3;let best=null;
+  for(const r of a){if(r.v0>v)break;if(v<r.v0+r.n&&(!best||r.n<best.n))best=r;}return best?best.s:null;}
+function groundName(s,p){let t='';try{t=surfType(p.x,p.z);}catch(e){}let st='';try{const r=streetNameAt(p.x,p.z);st=r[0]?r[0].n:'';}catch(e){}
+  return({road:`${st||'Street'} roadway`,block:`Sidewalk${st?' on '+st:''}`,park:'Grant Park lawn',river:'Chicago River',lake:'Lake Michigan',bridge:`${st||'River'} bridge deck`,trench:'Illinois Central cut',rail:'Rail yard'})[t]||scopeName(s);}
+// what a tap hit: a live thing, a scope's geometry, a scope's scene object, or else a mesh by name
+function assetOfHit(h){const o=h.object,p=h.point.clone();let root=o;while(root.parent&&root.parent!==scene)root=root.parent;
+  const ent=entityOf(root);if(ent)return{key:'e:'+root.uuid,kind:ent.kind,name:ent.name,point:p,root,ent};
+  const s=scopeOfTriangle(o,h.faceIndex);
+  if(s)return{key:'s:'+s.id,kind:'scope',name:(s.name==='buildGround'||s.name==='buildWater')?groundName(s,p):isBuilding(s)?`${scopeName(s)} ${placeName(p.x,p.z).split(',')[0]}`.trim():scopeName(s),point:p,scope:s,mesh:o,mk:o.name};
+  for(let t=o;t&&t!==scene;t=t.parent){const s2=SRC.obj.get(t);if(!s2)continue;const one=h.instanceId!==undefined?h.instanceId:h.batchId;
+    const nm=s2.name==='buildParkTrees'?'Park tree':scopeName(s2)+(o.name&&!/^Rebuilt/.test(o.name)?` · ${o.name}`:'');
+    return{key:'s:'+s2.id+(one!==undefined?':'+o.uuid+':'+one:''),kind:'scope',name:nm,point:p,scope:s2,mesh:o,one,oneBatched:h.batchId!==undefined};}
+  return{key:'o:'+o.uuid+(h.instanceId!==undefined?':'+h.instanceId:''),kind:'object',name:(o.name||o.type)+(placeName(p.x,p.z)?' '+placeName(p.x,p.z).split(',')[0]:''),point:p,mesh:o,one:h.instanceId};}
+
+// ================= HIGHLIGHTS =================
+// A tagged thing glows: city geometry gets a copy of its own triangles and edges in amber, a live thing a box that follows it.
+const HL={group:null,items:new Map(),t:0};
+const HMAT=new THREE.MeshBasicMaterial({color:0xffb938,transparent:true,opacity:.3,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,fog:false,toneMapped:false});
+const HLINE=new THREE.LineBasicMaterial({color:0xffe0a0,transparent:true,opacity:.95,depthWrite:false,fog:false,toneMapped:false});
+function hlGroup(){if(!HL.group){HL.group=new THREE.Group();HL.group.name='Claude editor highlights';SKIP.add(HL.group);}if(HL.group.parent!==scene)scene.add(HL.group);return HL.group;}
+// the triangles a scope wrote (its ranges hold its parts' too), world space, at most maxTris
+function rangesGeometry(s,maxTris){const pos=[];let tris=0;
+  for(const r of s.ranges){const m=r.g.mesh;if(!m||!m.geometry.index)continue;const ia=m.geometry.index.array,pa=m.geometry.attributes.position.array;
+    for(let i=r.i0,e=r.i0+r.ni;i+2<e;i+=3){if(++tris>maxTris)break;for(let k=0;k<3;k++){const v=ia[i+k]*3;pos.push(pa[v],pa[v+1],pa[v+2]);}}if(tris>maxTris)break;}
+  if(!pos.length)return null;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));return g;}
+function oneBox(a){const b=new THREE.Box3(),m=a.mesh;
+  if(a.one!==undefined&&m&&m.isInstancedMesh){if(!m.geometry.boundingBox)m.geometry.computeBoundingBox();const mm=new THREE.Matrix4();m.getMatrixAt(a.one,mm);b.copy(m.geometry.boundingBox).applyMatrix4(mm).applyMatrix4(m.matrixWorld);return b;}
+  if(a.one!==undefined&&m&&m.isBatchedMesh){try{const gid=m.getGeometryIdAt(a.one),mm=new THREE.Matrix4();m.getBoundingBoxAt(gid,b);m.getMatrixAt(a.one,mm);b.applyMatrix4(mm).applyMatrix4(m.matrixWorld);return b;}catch(e){}}
+  if(a.root)return b.setFromObject(a.root);if(a.scope&&a.scope.box)return b.copy(a.scope.box);if(m)return b.setFromObject(m);return b.setFromCenterAndSize(a.point,new THREE.Vector3(2,2,2));}
+function highlight(a){if(HL.items.has(a.key))return;const g=new THREE.Group();let follow=null;
+  if(a.scope&&a.one===undefined&&a.scope.ranges.length){const geo=rangesGeometry(a.scope,150000);if(geo){g.add(new THREE.Mesh(geo,HMAT));g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo,28),HLINE));}}
+  if(!g.children.length){const b=oneBox(a),h=new THREE.Box3Helper(b,0xffc452);h.material=HLINE;g.add(h);if(a.root)follow=()=>{b.setFromObject(a.root);};}
+  g.traverse(o=>{o.renderOrder=999;o.frustumCulled=false;SKIP.add(o);});hlGroup().add(g);HL.items.set(a.key,{g,follow});}
+function unhighlight(key){const it=HL.items.get(key);if(!it)return;it.g.removeFromParent();it.g.traverse(o=>{if(o.geometry)o.geometry.dispose();});HL.items.delete(key);}
+// a short flash on what a rebuild made, so you see where the change landed
+function flashScope(s){const a={key:'flash:'+s.id+':'+Date.now(),scope:s,point:s.box?s.box.getCenter(new THREE.Vector3()):new THREE.Vector3()};highlight(a);setTimeout(()=>unhighlight(a.key),2600);}
+FRAME_HOOKS.push(dt=>{if(!HL.items.size)return;HL.t+=dt;HMAT.opacity=.2+.12*(1+Math.sin(HL.t*4))/2;for(const it of HL.items.values())if(it.follow)it.follow();});
+
+// ================= CAMERA =================
+function camPose(){const c=camera,dir=c.getWorldDirection(new THREE.Vector3());
+  return{x:r1(c.position.x),y:r1(c.position.y),z:r1(c.position.z),heading:Math.round(headingOf(dir.x,dir.z)),pitch:Math.round(deg(Math.asin(Math.max(-1,Math.min(1,dir.y))))),fov:Math.round(c.fov),
+    mode:EDCAM.on?'free camera':AER.on?'aerial view':PLAYER.car?'driving':PLAYER.mount?'riding':'on foot'};}
+const poseText=p=>`${p.mode}; camera at (${p.x}, ${p.y}, ${p.z}) looking ${compass(p.heading)} (heading ${p.heading}°, pitch ${p.pitch}°), field of view ${p.fov}°`;
+async function setCamera(o){const mode=o.mode||'free';
+  if(mode==='player'){edCamOff();if(AER.on)toggleAerial();await frames(4);return camPose();}
+  if(mode==='aerial'){edCamOff();if(!AER.on)toggleAerial();if(o.x!=null)AER.x=+o.x;if(o.z!=null)AER.z=+o.z;if(o.y!=null)AER.h=clamp(+o.y,30,1100);
+    if(o.heading_deg!=null)AER.yaw=-rad(+o.heading_deg);if(o.pitch_deg!=null)AER.pitch=clamp(-rad(+o.pitch_deg),.28,1.5);await frames(4);return camPose();}
+  const p=camPose();let x=o.x!=null?+o.x:p.x,y=o.y!=null?+o.y:p.y,z=o.z!=null?+o.z:p.z,h=o.heading_deg!=null?+o.heading_deg:p.heading,pt=o.pitch_deg!=null?+o.pitch_deg:p.pitch;
+  if(o.look_at&&typeof o.look_at==='object'){const dx=+o.look_at.x-x,dz=+o.look_at.z-z,dy=(+o.look_at.y||0)-y;h=headingOf(dx,dz);pt=deg(Math.atan2(dy,Math.hypot(dx,dz)));}
+  if(![x,y,z,h,pt].every(Number.isFinite))throw new Error('x, y, z, heading_deg and pitch_deg must be numbers');
+  edCamOn(x,y,z,-rad(h),rad(pt),o.fov_deg!=null?+o.fov_deg:(EDCAM.on?EDCAM.fov:62));await frames(2);try{updateStreaming(camera,0,true);}catch(e){}await frames(3);return camPose();}
+
+// ================= WHAT IS ON SCREEN =================
+function screenArea(b,tmp){let x0=1,x1=-1,y0=1,y1=-1,n=0;for(const x of[b.min.x,b.max.x])for(const y of[b.min.y,b.max.y])for(const z of[b.min.z,b.max.z]){const v=tmp.set(x,y,z).project(camera);
+    if(v.z<-1||v.z>1)continue;n++;x0=Math.min(x0,v.x);x1=Math.max(x1,v.x);y0=Math.min(y0,v.y);y1=Math.max(y1,v.y);}
+  if(!n)return 0;x0=Math.max(-1,x0);x1=Math.min(1,x1);y0=Math.max(-1,y0);y1=Math.min(1,y1);return Math.max(0,x1-x0)*Math.max(0,y1-y0)/4;}
+// the parts of the world that fill the view: parts, buildings, and builders that have no parts, biggest first
+function visibleScopes(n){camera.updateMatrixWorld();const fr=new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse)),tmp=new THREE.Vector3(),out=[];
+  for(const s of allScopes()){if(!s.box||(s.kids.length&&!s.mark&&!isBuilding(s)))continue;if(!fr.intersectsBox(s.box))continue;const a=screenArea(s.box,tmp);if(a>=.004)out.push({s,a});}
+  out.sort((a,b)=>b.a-a.a);return out.slice(0,n);}
+function nearbyThings(x,z,r){const out=[],add=(kind,name,p)=>{const d=Math.hypot(p.x-x,p.z-z);if(d<r)out.push({kind,name,d,p});};
+  for(const v of VEHICLES)if(!v.dead&&v!==PLAYER.car)add(v.mode==='tram'?'streetcar':'vehicle',(v.md&&v.md.name)||v.kind,v.pos);
+  for(const p of PEDS)if(p.h&&p.h.group.visible)add('person',PEOPLE_KIND_NAMES[p.kind]||p.kind,p.h.pos);
+  for(const m of MOUNTS)if(!m.dead)add('horse',m.name,{x:m.x,z:m.z});
+  out.sort((a,b)=>a.d-b.d);return out;}
+function aerialFootprint(){const pts=[];for(const [sx,sy] of[[-1,-1],[1,-1],[1,1],[-1,1]]){_ray.setFromCamera(_ndc.set(sx,sy),camera);const r=_ray.ray;if(r.direction.y>=-.01)continue;const t=-r.origin.y/r.direction.y;pts.push({x:r.origin.x+r.direction.x*t,z:r.origin.z+r.direction.z*t});}
+  if(!pts.length)return'';const x0=Math.min(...pts.map(p=>p.x)),x1=Math.max(...pts.map(p=>p.x)),z0=Math.min(...pts.map(p=>p.z)),z1=Math.max(...pts.map(p=>p.z));
+  const ds=new Set();for(let i=0;i<=4;i++)for(let j=0;j<=4;j++){try{ds.add(districtAt(lerp(x0,x1,i/4),lerp(z0,z1,j/4)));}catch(e){}}
+  const ns=NS.filter(s=>s.x>=x0&&s.x<=x1).map(s=>s.n),ew=EW.filter(s=>s.z>=z0&&s.z<=z1).map(s=>s.n);
+  return`The ground in view spans about x ${Math.round(x0)}..${Math.round(x1)}, z ${Math.round(z0)}..${Math.round(z1)} (${[...ds].join(', ')}); streets in view: ${uniq([...ns,...ew]).join(', ')||'none'}. Playable map: x ${MAP.x0}..${MAP.x1}, z ${MAP.z0}..${MAP.z1}; generated: x ${VIS.x0}..${VIS.x1}, z ${VIS.z0}..${VIS.z1}.`;}
+function clockText(t){const h=Math.floor(t),m=Math.floor((t-h)*60);return`${((h+11)%12)+1}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`;}
+function scopeLine(s,extra){return`#${s.id} ${scopeName(s)} — ${scopeChain(s)}; ${boxText(s.box)}${extra?'; '+extra:''}`;}
+// describe_view (and the context of every prompt): the camera, the centre of the screen, the biggest things in view, who is near
+function describeView(){const pose=camPose(),out=[`View: ${poseText(pose)}.`];
+  const h=pickAt(innerWidth/2,innerHeight/2);if(h){const a=assetOfHit(h);out.push(`Centre of the screen: ${a.name}${a.scope?` (scope #${a.scope.id})`:''} at ${P3(a.point)}, ${r1(h.distance)} m away, ${placeName(a.point.x,a.point.z)}.`);}
+  else out.push('Centre of the screen: sky.');
+  const vis=visibleScopes(14);if(vis.length)out.push('Biggest things in view:\n'+vis.map(v=>'- '+scopeLine(v.s,`${Math.round(v.a*100)}% of the view`)).join('\n'));
+  const c=camera.position,near=nearbyThings(c.x,c.z,60);if(near.length){const cnt={};for(const t of near)cnt[t.kind]=(cnt[t.kind]||0)+1;
+    out.push(`Near the camera (60 m): ${Object.entries(cnt).map(([k,n])=>n+' '+k+(n>1?'s':'')).join(', ')}; closest: ${near.slice(0,5).map(t=>`${t.name} ${Math.round(t.d)} m`).join(', ')}.`);}
+  if(AER.on||camera.position.y>60)out.push(aerialFootprint());
+  return out.join('\n');}
+
+// ================= SCREENSHOTS =================
+// read the canvas right after the game draws a frame (FRAME_HOOKS: the frame is still in the drawing buffer); when the loop is
+// not drawing (menu open) draw one here. Tagged things get their numbers drawn on.
+function grab(maxDim,tags){const src=canvasEl,s=Math.min(1,maxDim/Math.max(src.width,src.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(src.width*s));c.height=Math.max(1,Math.round(src.height*s));
+  const g=c.getContext('2d');g.drawImage(src,0,0,c.width,c.height);
+  for(const t of tags||[]){const v=t.point.clone().project(camera);if(v.z<-1||v.z>1)continue;const x=(v.x+1)/2*c.width,y=(1-v.y)/2*c.height,r=Math.max(11,c.width/70);
+    g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fillStyle='rgba(20,16,10,.85)';g.fill();g.lineWidth=2.5;g.strokeStyle='#ffc452';g.stroke();
+    g.fillStyle='#ffe7ae';g.font=`bold ${Math.round(r*1.1)}px system-ui,sans-serif`;g.textAlign='center';g.textBaseline='middle';g.fillText(String(t.n),x,y+1);}
+  return c;}
+function captureView(maxDim=1280,tags){return new Promise(res=>{let done=false;
+  const take=()=>{if(done)return;done=true;const i=FRAME_HOOKS.indexOf(hook);if(i>=0)FRAME_HOOKS.splice(i,1);let c;try{c=grab(maxDim,tags);}catch(e){res(null);return;}c.toBlob(b=>res(b),'image/jpeg',.85);};
+  const hook=()=>take();FRAME_HOOKS.push(hook);
+  setTimeout(()=>{if(done)return;try{renderFrame(scene,camera,0,SKY.night||0);}catch(e){}take();},700);});}
+
+// ================= PHOTOS: WHERE AND WHICH WAY =================
+// The claude.ai frame refuses location and the compass, so a photo taken on the street carries its own: the phone's EXIF GPS
+// position, compass direction and 35 mm focal length, when it kept them. GEO maps latitude/longitude onto the game's grid through
+// the real positions of the streets the game lays out evenly (piecewise linear between them).
+function exifOf(buf){try{const d=new DataView(buf);if(d.byteLength<12||d.getUint16(0)!==0xFFD8)return null;let o=2;
+  while(o+4<d.byteLength){const m=d.getUint16(o);if((m&0xFF00)!==0xFF00)break;const len=d.getUint16(o+2);if(m===0xFFE1&&d.getUint32(o+4)===0x45786966)return tiff(d,o+10);if(m===0xFFDA)break;o+=2+len;}}catch(e){}return null;}
+function tiff(d,t){const le=d.getUint16(t)===0x4949,u16=p=>d.getUint16(p,le),u32=p=>d.getUint32(p,le);
+  const ifd=p=>{const n=u16(p),tags={};for(let i=0;i<n;i++){const e=p+2+i*12;tags[u16(e)]={type:u16(e+2),cnt:u32(e+4),vo:e+8};}return tags;};
+  const at=e=>((({1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8})[e.type]||1)*e.cnt>4?t+u32(e.vo):e.vo);
+  const num=(e,i=0)=>{if(!e)return null;const p=at(e);switch(e.type){case 3:return u16(p+2*i);case 4:return u32(p+4*i);case 5:return u32(p+8*i)/(u32(p+8*i+4)||1);case 10:return d.getInt32(p+8*i,le)/(d.getInt32(p+8*i+4,le)||1);case 1:case 7:return d.getUint8(p+i);default:return null;}};
+  const str=e=>{if(!e)return null;const p=at(e);let s='';for(let i=0;i<e.cnt;i++){const c=d.getUint8(p+i);if(!c)break;s+=String.fromCharCode(c);}return s;};
+  const T=ifd(t+u32(t+4)),out={};if(T[0x0112])out.orientation=num(T[0x0112]);
+  if(T[0x8769]){const E=ifd(t+num(T[0x8769]));if(E[0xA405])out.focal35=num(E[0xA405]);if(E[0x9003])out.date=str(E[0x9003]);}
+  if(T[0x8825]){const g=ifd(t+num(T[0x8825])),dms=e=>e?num(e,0)+num(e,1)/60+num(e,2)/3600:null,la=dms(g[2]),lo=dms(g[4]);
+    if(la!=null&&lo!=null&&(la||lo)){out.lat=(str(g[1])==='S'?-1:1)*la;out.lon=(str(g[3])==='W'?-1:1)*lo;}if(g[0x11]){out.heading=num(g[0x11]);out.headingRef=str(g[0x10])||'T';}}
+  return out;}
+const GEO={lon:[[-87.6354,-440],[-87.6339,-330],[-87.6323,-220],[-87.6309,-110],[-87.6294,0],[-87.6278,110],[-87.6261,210],[-87.6245,310],[-87.6175,615],[-87.6150,692]],
+ lat:[[41.8917,-860],[41.8907,-740],[41.8898,-660],[41.8890,-575],[41.8869,-420],[41.8857,-330],[41.8845,-230],[41.8832,-130],[41.8820,-30],[41.8806,70],[41.8794,170],[41.8781,270],[41.8768,370],[41.8756,470]]};
+function pl(pts,v){const a=pts.slice().sort((p,q)=>p[0]-q[0]);let i=0;while(i<a.length-2&&v>a[i+1][0])i++;const [x0,y0]=a[i],[x1,y1]=a[i+1];return y0+(y1-y0)*(v-x0)/(x1-x0);}
+function geoToGame(lat,lon){return{x:pl(GEO.lon,lon),z:pl(GEO.lat,lat)};}
+// where the game camera should stand to see what the photo saw: eye height, the photo's heading (Chicago's compass declination is
+// about 3.5° west), the vertical field of view from the 35 mm focal length and the picture's shape
+function photoPose(ex,w,h){if(!ex||ex.lat==null)return null;const g=geoToGame(ex.lat,ex.lon),inside=g.x>VIS.x0&&g.x<VIS.x1&&g.z>VIS.z0&&g.z<VIS.z1;
+  let head=ex.heading!=null?ex.heading-(ex.headingRef==='M'?3.5:0):null;if(head!=null)head=((head%360)+360)%360;
+  const tall=h>w,fov=ex.focal35?deg(2*Math.atan((tall?18:12)/ex.focal35)):null;// (w, h: the picture as decoded, already upright)
+  let y=1.6;try{y=groundAt(g.x,g.z)+1.6;}catch(e){}
+  return{x:r1(g.x),y:r1(y),z:r1(g.z),heading:head!=null?Math.round(head):null,fov:fov?Math.round(fov):null,inside,place:inside?placeName(g.x,g.z):'outside the game map'};}
+
+// ================= ASKING CLAUDE =================
+// One request = the standing instructions (a leading user turn: there is no system prompt on claude.ai), the recent conversation,
+// and the new message with the game's context, the code that built what was tagged, the screenshot and any photos. Claude works
+// through the page tools below, a few rounds per request; a longer job ends with a NEXT: line and the Continue button.
+const INSTRUCTIONS=`You are Claude, working live inside Taxi Wars, a 3D three.js game of Chicago on October 16, 1928 (Yellow Cab vs Checker, fares, races, horses and wagons, the "L", the river, Grant Park). The player talks to you from a prompt bar in the running game, usually standing where they want something changed. You read and edit the game's own source with the page tools; your edits go live in the running game without a reload and are saved into the game.
+
+HOW THE GAME IS BUILT
+- One classic script (the game source, about 4,900 lines) in sections headed // ================= NAME ================= and // ---------- part ----------. The code is dense: several statements per line, short lowercase comments in the author's voice. Match that style and don't reformat code you aren't changing.
+- Metres; +x east, +z south, y up. Roadways are y=0, sidewalks CURB (0.16). Streets are in the NS and EW tables (State St x=110, Madison St z=-30); districtAt(x,z) and streetNameAt(x,z) name places; groundAt(x,z,y) is the ground height (terrainH holds the special cases).
+- The world is built once at load by builders that init() runs in source scopes: srcScope(buildL), srcScope(genCity,cells) (each building is srcRun({label:'Building',...},genBuilding,...)), srcScope(buildLandmarks) with parts such as srcMark('Tribune Tower (1925)'). Static geometry goes through box(), quad(), addGeo(), cyl() and the like into per-material chunk buckets that finalizeBuckets() bakes and the game streams by distance; buildGroup(fn) makes movable objects from the same helpers; colliders are boxCol / circCol.
+- Every frame, frame() runs the simulation and the update functions (updateSky, updateLTrains, updateTraffic, pedsUpdate...), then renderFrame().
+- Globals: scene, camera, renderer, PLAYER (h, car, mount), CAM, AER (aerial view), EDCAM (free camera), SKY (t = hour of day), MATS (materials by key), VEHICLES, PEDS, MOUNTS, LTRAINS, TRAMS, BOATS, SRC (source scopes).
+
+HOW EDITS GO LIVE
+- edit_code applies exact replacements and at once swaps changed top-level functions into the running game (per-frame code changes immediately), patches changed class methods, re-assigns changed top-level let values and adds new declarations.
+- Load-time code needs one more step: after changing a world builder, call rebuild on the smallest scope that shows the change (one building or one landmark part, not the whole city). Top-level const values, data tables and top-level statements are read once at load: change them, then call restart_world (or update the live objects with run_js as well).
+- If the running game throws new errors after an edit, the edit is rolled back and you get the errors.
+- Never put a // comment in the middle of a line with code after it: everything after // on that line becomes comment. That bug broke this game before. End the line after the comment, or use /* */.
+
+HOW YOU WORK HERE
+- The newest message has <game_context>: time, camera, the player, the centre of the screen, what the player tagged (@[Name] in their text is a numbered tag, circled with its number on the screenshot), what is in view, who is near, recent errors, and the code that built the tagged things. Start from it.
+- You get only a few tool rounds per request. Make independent calls in the same round (several reads or searches at once). Read the exact lines before editing: old_string must match exactly and be unique; never copy read_code's line-number prefix.
+- You can't see new screenshots while you work: use describe_view after you move the camera or rebuild.
+- If the job needs more rounds than you have, finish a coherent piece, then end your answer with one line starting "NEXT:" saying what is left; the player can press Continue, which also sends you a fresh screenshot. Do the same when you want to look at a visible change.
+- For a general request (every lamp, all the water, the sky), change the system that makes all of them, not one of them.
+- Old photographs: reproduce the viewpoint with set_camera (a photo from a phone may come with an estimated position and heading), compare the pictures, then change proportions, heights, colours and details so the game matches; say what you matched and what you couldn't.
+- Big changes (a new district, a bigger map) are fine: plan them, keep the game loading, and restart_world when the data tables change.
+- Leave the camera where the player had it unless the task needs another view; give it back with set_camera {"mode":"player"} when you are done.
+- Write briefly and plainly: the player is in the middle of the game. Say what you changed and where. Ask only when you can't tell what they want.
+- run_js runs in the page without network or storage; never try to reach credentials.`;
+const RUN={busy:false,ctl:null,log:[],edited:false,restart:null,shrink:1,noImages:false};
+// every tool call shows in the conversation while it runs; the ones that change things take turns
+function tool(name,description,properties,required,fn,opts={}){
+  return{name,description,inputSchema:{type:'object',properties,...(required&&required.length?{required}:{})},
+    async execute(input,ctx){const it=UI.toolStart(name,input);RUN.log.push(it);
+      try{if(ctx&&ctx.signal&&ctx.signal.aborted)throw new Error('stopped');const r=await(opts.mutates?locked(()=>fn(input||{},ctx)):fn(input||{},ctx));
+        const s=typeof r==='string'?r:JSON.stringify(r);UI.toolEnd(it,true,s);return s.length>30000?s.slice(0,30000)+'\n…(cut at 30 KB)':s;}
+      catch(e){const msg=(e&&e.message)||String(e);UI.toolEnd(it,false,msg);throw new Error(msg);}}};}
+const TOOLS=[
+ tool('read_code','Read the game source with line numbers. Give name (a top-level function, class or variable, e.g. "buildL"), or section (a section title, e.g. "THE \\"L\\" TRAINS"), or start_line and end_line. Returns at most about 24 KB; a cut-off result says where to go on. Read before you edit: edit_code needs the exact text.',
+  {name:{type:'string'},section:{type:'string'},start_line:{type:'integer'},end_line:{type:'integer'}},[],o=>readCode(o)),
+ tool('search_code','Find lines of the game source containing query (plain text, or a regular expression with regex:true). Returns line numbers, the top-level function each line is in, and the matching text. Use it to find where something is made or used.',
+  {query:{type:'string'},regex:{type:'boolean'},case_sensitive:{type:'boolean'},max_results:{type:'integer'}},['query'],o=>searchCode(o)),
+ tool('edit_code','Change the game source: each edit replaces old_string (exact text that occurs once) with new_string, in order. The result must parse. Changed functions go live at once; the result says what else a change needs (rebuild or restart_world). summary is a few words for the player\'s edit history.',
+  {edits:{type:'array',items:{type:'object',properties:{old_string:{type:'string'},new_string:{type:'string'}},required:['old_string','new_string']}},summary:{type:'string'}},['edits','summary'],
+  async o=>{const r=await editCode(o);RUN.edited=true;UI.refreshEdits();return r.text;},{mutates:true}),
+ tool('rebuild','Rebuild one part of the world with the current code, so a builder edit shows: the scope\'s old geometry, colliders and scene objects go and its builder runs again from the same random seed. scope is an id like "#123" (from game_context, describe_view or find_assets) or a builder name like "buildL". before_js / after_js run around it (for example to empty an array the builder fills). Rebuild the smallest scope that covers the change.',
+  {scope:{type:'string'},before_js:{type:'string'},after_js:{type:'string'}},['scope'],o=>rebuildScope(o),{mutates:true}),
+ tool('run_js','Run JavaScript in the game page as the body of an async function: await works, and a returned value comes back to you. Every game global is in reach. For looking at live state, and for live changes edit_code can\'t apply (updating existing objects after a data change). Changes made this way are not saved: put lasting changes in the source with edit_code. No network or storage.',
+  {code:{type:'string'}},['code'],o=>runJS(String(o.code||'')),{mutates:true}),
+ tool('set_camera','Move the game camera. mode "free" (the default) puts a free camera at x, y, z looking along heading_deg (0 = north = -z, 90 = east = +x) and pitch_deg (up is positive), or at look_at {x,y,z}; fov_deg is the vertical field of view. mode "aerial" flies over the city (y = altitude). mode "player" gives the view back to the player. Returns the new pose; call describe_view to learn what is in view.',
+  {mode:{type:'string',enum:['free','aerial','player']},x:{type:'number'},y:{type:'number'},z:{type:'number'},heading_deg:{type:'number'},pitch_deg:{type:'number'},fov_deg:{type:'number'},
+   look_at:{type:'object',properties:{x:{type:'number'},y:{type:'number'},z:{type:'number'}}}},[],async o=>'Camera now: '+poseText(await setCamera(o))+'.',{mutates:true}),
+ tool('describe_view','Describe what the camera sees now: its pose, the thing at the centre of the screen, the biggest things in view with their scope ids and boxes, people and vehicles near the camera, and from the air the ground area in view. Use it after moving the camera or rebuilding: you can\'t see new screenshots.',
+  {},[],()=>describeView()),
+ tool('find_assets','Find parts of the world by name (query, e.g. "Tribune", "station", "bridge", "building") and/or near a point (near {x, z, radius}). Returns scope ids, names, the builder that made each, its box and code lines, and the people and vehicles near the point.',
+  {query:{type:'string'},near:{type:'object',properties:{x:{type:'number'},z:{type:'number'},radius:{type:'number'}}},limit:{type:'integer'}},[],o=>findAssets(o)),
+ tool('restart_world','Reload the game with the edited source, for changes read once at load (top-level constants, data tables, new world systems). It happens when your answer ends, and the player is put back where they were. Tell the player in your answer.',
+  {reason:{type:'string'}},[],o=>{RUN.restart=String(o.reason||'restart');return'The world restarts with the edited code when this answer ends (about 10-20 seconds of loading); the player is put back where they are.';}),
+ tool('code_map','List the source\'s sections with their line ranges and the top-level functions, classes and tables in each.',{},[],()=>codeMap())];
+async function rebuildScope(o){const s=findScope(o.scope);if(!s)throw new Error(`No live scope "${o.scope}". Use an id from game_context, describe_view or find_assets.`);let root=s;while(root&&!root.fn)root=root.parent;if(!root)throw new Error('That part has no builder of its own.');
+  const out=[];if(o.before_js){const r=await runJS(String(o.before_js));out.push('before_js returned '+r);}
+  const t0=performance.now();let n;
+  try{n=await srcRebuild(root);}catch(e){const st=mapStack(e&&e.stack);throw new Error(`The rebuild failed: ${(e&&e.message)||e}${st.length?' — at '+st.join(' ← '):''}. #${root.id} stays hidden until it is rebuilt: fix the builder, then rebuild #${root.id} again.`);}
+  TRI=null;flashScope(n);try{renderer.shadowMap.needsUpdate=true;}catch(e){}
+  let verts=0;for(const r of n.ranges)verts+=r.n;const meshes=n.live?n.live.children.length:0;
+  if(o.after_js){const r=await runJS(String(o.after_js));out.push('after_js returned '+r);}
+  out.unshift(`Rebuilt ${scopeName(n)} as #${n.id}${root!==s?` (the builder of #${s.id})`:''} in ${Math.round(performance.now()-t0)} ms: ${verts} vertices in ${meshes} meshes, ${n.cols.length} colliders, ${n.objs.length} scene objects; ${boxText(n.box)}. It stays in its own meshes until the next reload bakes it into the city.`);
+  return out.join('\n');}
+async function findAssets(o){const q=String(o.query||'').toLowerCase(),near=o.near&&Number.isFinite(+o.near.x)&&Number.isFinite(+o.near.z)?{x:+o.near.x,z:+o.near.z,r:+o.near.radius||80}:null,lim=Math.min(40,Math.max(1,Number(o.limit)|0||20));
+  const rows=[];for(const s of allScopes()){if(!s.box)continue;const nm=scopeName(s);if(q&&!nm.toLowerCase().includes(q)&&!s.name.toLowerCase().includes(q)&&!(q==='building'&&isBuilding(s)))continue;
+    let d=0;if(near){const b=s.box,dx=Math.max(b.min.x-near.x,0,near.x-b.max.x),dz=Math.max(b.min.z-near.z,0,near.z-b.max.z);d=Math.hypot(dx,dz);if(d>near.r)continue;}rows.push({s,d});}
+  if(!q&&!near)return'Give a query or a near point.';
+  rows.sort((a,b)=>a.d-b.d||(a.s.kids.length?1:0)-(b.s.kids.length?1:0));const out=[];
+  for(const {s,d} of rows.slice(0,lim)){const c=await scopeCode(s);out.push('- '+scopeLine(s,(near?`${Math.round(d)} m away; `:'')+(c?`code: lines ${c.line}-${c.endLine} (${c.label})`:'')));}
+  if(near){const t=nearbyThings(near.x,near.z,near.r).slice(0,10);if(t.length)out.push('Near that point: '+t.map(x=>`${x.name} (${x.kind}) at (${r1(x.p.x)}, ${r1(x.p.z)})`).join('; '));}
+  return(rows.length>lim?`${rows.length} matches, the first ${lim}:\n`:'')+(out.join('\n')||'Nothing found.');}
+// run_js: an async function in the page's global scope; the network and storage names are shadowed by its parameters
+function safe(v,depth=3,max=6000){const seen=new WeakSet(),rn=n=>Math.round(n*1000)/1000;
+  const rec=(x,d)=>{if(x===null||x===undefined)return x;const t=typeof x;if(t==='number')return Number.isFinite(x)?rn(x):String(x);if(t==='string')return clip(x,1500);if(t==='boolean')return x;
+    if(t==='bigint'||t==='symbol')return x.toString();if(t==='function')return`[function ${x.name||'anonymous'}]`;
+    if(x.isVector3||x.isVector2)return x.toArray().map(rn);if(x.isColor)return'#'+x.getHexString();if(x.isEuler)return[x.x,x.y,x.z].map(rn);
+    if(x.isObject3D)return{type:x.type,name:x.name,position:x.position.toArray().map(rn),children:x.children.length,visible:x.visible};
+    if(x.isMaterial)return{type:x.type,name:x.name,color:x.color?'#'+x.color.getHexString():undefined};if(x.isBufferGeometry)return{type:x.type,vertices:x.attributes.position?x.attributes.position.count:0};
+    if(ArrayBuffer.isView(x))return`[${x.constructor.name} length ${x.length}]`;if(x instanceof Map)return rec(Object.fromEntries([...x.entries()].slice(0,30)),d);if(x instanceof Set)return rec([...x].slice(0,30),d);
+    if(seen.has(x))return'[circular]';seen.add(x);if(d<=0)return Array.isArray(x)?`[array of ${x.length}]`:'[object]';
+    if(Array.isArray(x)){const a=x.slice(0,30).map(y=>rec(y,d-1));if(x.length>30)a.push(`… ${x.length-30} more`);return a;}
+    const o={},ks=Object.keys(x);for(const k of ks.slice(0,40)){try{o[k]=rec(x[k],d-1);}catch(e){o[k]='[unreadable]';}}if(ks.length>40)o['…']=`${ks.length-40} more keys`;return o;};
+  let s;try{s=JSON.stringify(rec(v,depth));}catch(e){s=String(v);}return s===undefined?'undefined':clip(s,max);}
+async function runJS(code){const id='__twe_js_'+(++fileSeq),out=[],con={log:console.log,warn:console.warn,error:console.error,info:console.info};
+  const fmt=a=>a.map(x=>typeof x==='string'?x:safe(x,2,600)).join(' ');
+  console.log=console.info=(...a)=>{if(out.length<40)out.push(fmt(a));con.log(...a);};console.warn=(...a)=>{if(out.length<40)out.push('warn: '+fmt(a));con.warn(...a);};console.error=(...a)=>{if(out.length<40)out.push('error: '+fmt(a));con.error(...a);};
+  try{const err=await runScript(`window.${id}=async function(fetch,XMLHttpRequest,WebSocket,EventSource,localStorage,sessionStorage,indexedDB){\n${code}\n};`,'twe-run-'+(fileSeq+1),0);
+    if(err)throw err;const res=await window[id]();return safe(res)+(out.length?'\nconsole:\n'+out.join('\n'):'');}
+  catch(e){const st=mapStack(e&&e.stack);throw new Error(`${(e&&e.message)||e}${st.length?' — at '+st.join(' ← '):''}${out.length?'\nconsole:\n'+out.join('\n'):''}`);}
+  finally{delete window[id];Object.assign(console,con);}}
+
+// ================= ONE REQUEST =================
+const CHAT={turns:[],entries:[],lastTools:'',mapSent:false};
+const MAXB=61000;// bytes, under the 64 KiB a request may carry
+// the code that built what was tagged and what is at the centre of the screen, as many lines as the budget allows
+async function excerpts(items,budget){const out=[],seen=new Set();let used=0;const L=srcLines();
+  for(const [why,s] of items){if(!s||used>=budget)continue;const c=await scopeCode(s);if(!c)continue;const k=c.line+':'+c.endLine;if(seen.has(k))continue;seen.add(k);
+    let text='';for(let i=c.line;i<=c.endLine;i++){const ln=`${String(i).padStart(5)}| ${L[i-1]}\n`;if(used+text.length+ln.length>budget){text+=`      … lines ${i}-${c.endLine} left out (read_code start_line ${i})\n`;break;}text+=ln;}
+    const sec=sectionAt(c.line);used+=text.length;out.push(`${why}: ${c.label}${sec.major?`, section ${sec.major.title}${sec.section&&sec.section!==sec.major?' › '+sec.section.title:''}`:''}, lines ${c.line}-${c.endLine}\n${text}`);}
+  return out.join('\n');}
+async function buildMessage(prompt,tags,photos,shotOk){const P=PLAYER,f=P.car?P.car.pos:P.mount?{x:P.mount.x,y:0,z:P.mount.z}:P.h.pos,pose=camPose();
+  const lines=[`Time in the game: ${clockText(SKY.t)}${SKY.night>.5?' (night)':''}.`,`Player: ${pose.mode==='driving'?'driving the '+((P.car.md&&P.car.md.name)||'car'):pose.mode==='riding'?'riding '+(P.mount.name||'a horse'):'on foot'} at (${r1(f.x)}, ${r1(f.y||0)}, ${r1(f.z)}), ${placeName(f.x,f.z)}.`,describeView()];
+  if(tags.length)lines.push('Tagged by the player:\n'+tags.map(t=>{const a=t.a;return`- @[${t.label}] = tag ${t.n}: ${a.name} at ${P3(a.point)}${a.scope?`; scope #${a.scope.id}, ${scopeChain(a.scope)}; ${boxText(a.scope.box)}`:''}${a.ent?`; ${a.ent.kind}; code: ${a.ent.code}`:''}${a.mk?`; material ${a.mk}`:''}${a.one!==undefined?`; ${a.oneBatched?'batch':'instance'} ${a.one} of ${a.mesh.name||a.mesh.type}`:''}`;}).join('\n'));
+  const errs=ERR.list.filter(e=>Date.now()-e.t<180000).slice(-5);if(errs.length)lines.push('Recent errors in the game:\n'+errs.map(e=>'- '+errText(e)).join('\n'));
+  lines.push(`Source: ${srcLines().length} lines${SRCM.log.length?`, ${SRCM.log.length} live edits so far (latest: ${SRCM.log[SRCM.log.length-1].summary})`:''}.`);
+  if(CHAT.lastTools)lines.push('Tools your last answer ran:\n'+CHAT.lastTools);
+  let msg=`<game_context>\n${lines.join('\n')}\n</game_context>\n`;
+  const imgs=[];if(shotOk)imgs.push('Image 1 is the game view right now'+(tags.length?', tags circled with their numbers':'')+'.');
+  photos.forEach((p,i)=>imgs.push(`Image ${imgs.length+1} is the player's photo "${p.name}"${p.meta?': '+p.meta:''}.`));
+  if(imgs.length)msg+=imgs.join('\n')+'\n';else if(!shotOk)msg+='(No screenshot: this view can\'t send pictures.)\n';
+  const tail=`\nThe player says: ${prompt}`;
+  let budget=Math.floor((MAXB-bytes(INSTRUCTIONS)-bytes(msg)-bytes(tail)-9000)*RUN.shrink);
+  const items=[...tags.filter(t=>t.a.scope).map(t=>[`Code for tag ${t.n} (${t.a.name})`,t.a.scope])];const ch=pickAt(innerWidth/2,innerHeight/2);if(ch){const a=assetOfHit(ch);if(a.scope)items.push([`Code for the centre of the screen (${a.name})`,a.scope]);}
+  const code=budget>2000?await excerpts(items,Math.min(28000,budget)):'';if(code){msg+=`<code>\n${code}</code>\n`;budget-=code.length;}
+  if(!CHAT.mapSent&&budget>12000){const m=await codeMap();if(bytes(m)<budget-1000){msg+=`<code_map>\n${m}\n</code_map>\n`;CHAT.mapSent=true;}}
+  return msg+tail;}
+// the conversation that fits: the instructions always, then the most recent turns
+function buildTurns(last){let used=bytes(INSTRUCTIONS)+bytes(last)+64;const hist=[];
+  for(let i=CHAT.turns.length-1;i>=0;i--){const t=CHAT.turns[i],b=bytes(t.content)+16;if(used+b>MAXB)break;hist.unshift(t);used+=b;}
+  return[{role:'user',content:INSTRUCTIONS},...hist,{role:'user',content:last}];}
+async function askClaude(prompt,{tags=[],photos=[],shown}={}){await caps();if(!CAP.sample)throw{code:CAP.onClaude?'capability_disabled':'not_declared',message:'no sample capability'};
+  RUN.busy=true;RUN.log=[];RUN.edited=false;RUN.restart=null;UI.busy(true);
+  const L=CAP.limits||{},canImg=!!L.images&&!RUN.noImages,maxImg=canImg?Math.max(0,L.images.maxCount|0):0;
+  const shot=maxImg?await captureView(1280,tags):null,pics=photos.slice(0,Math.max(0,maxImg-(shot?1:0)));
+  const msg=await buildMessage(prompt,tags,pics,!!shot),turns=buildTurns(msg);
+  const opts={signal:(RUN.ctl=new AbortController()).signal,modelTier:CFG.tier,onText:({text})=>UI.streamText(text)};
+  if(L.tools)opts.tools=TOOLS.slice(0,Math.max(1,L.tools.maxCount|0));else opts.cache=false;
+  const images=[...(shot?[shot]:[]),...pics.map(p=>p.blob)];if(images.length)opts.images=images;
+  const where=placeName(camera.position.x,camera.position.z).split(',')[0];
+  const userTurn=`[${clockText(SKY.t)}, ${where||'in the city'}${tags.length?'; tagged '+tags.map(t=>'@['+t.label+']').join(', '):''}${pics.length?`; ${pics.length} photo${pics.length>1?'s':''}`:''}] ${shown||prompt}`;
+  let res=null,err=null;try{res=await CAP.sample(turns,opts);}catch(e){err=e;}
+  RUN.busy=false;RUN.ctl=null;UI.busy(false);
+  CHAT.lastTools=RUN.log.map(it=>`- ${it.name} ${it.args}: ${it.ok?'ok':'failed'}${it.brief?' ('+it.brief+')':''}`).join('\n');
+  const text=res?res.text:(err&&err.text)||'';CHAT.turns.push({role:'user',content:userTurn});if(text.trim())CHAT.turns.push({role:'assistant',content:text});
+  if(err&&err.code==='images_unavailable')RUN.noImages=true;if(err&&err.code==='prompt_too_large')RUN.shrink=Math.max(.25,RUN.shrink/2);else if(res)RUN.shrink=1;
+  return{res,err,text,next:(text.match(/^\s*NEXT:\s*(.+)$/m)||[])[1]||null};}
+// after an answer: save what changed into the artifact; restart the world if Claude asked for it
+async function afterAnswer(){let saved=null;if(RUN.edited||unsaved()){UI.status('Saving the edited game…');saved=await publishSource();UI.status(saved.ok?'':saved.why);UI.refreshEdits();}
+  if(RUN.restart){await restartWorld();}return saved;}
+async function restartWorld(){const P=PLAYER,f=P.car?P.car.pos:P.h.pos;
+  const st={t:Date.now(),x:f.x,z:f.z,yaw:P.car?P.car.yaw:P.h.yaw,inCar:!!P.car,sky:SKY.t,
+    cam:EDCAM.on?{x:EDCAM.pos.x,y:EDCAM.pos.y,z:EDCAM.pos.z,yaw:EDCAM.yaw,pitch:EDCAM.pitch,fov:EDCAM.fov}:null,aer:AER.on?{x:AER.x,z:AER.z,h:AER.h,yaw:AER.yaw,pitch:AER.pitch}:null};
+  try{sessionStorage.setItem('twe.resume',JSON.stringify(st));}catch(e){}await saveChat();await saveLocal();UI.status('Restarting the world with the edited code…');await sleep(300);location.reload();}
+// back after a restart: straight into the city where the player was
+async function resume(){let st=null;try{st=JSON.parse(sessionStorage.getItem('twe.resume')||'null');sessionStorage.removeItem('twe.resume');}catch(e){}
+  if(!st||Date.now()-st.t>600000)return;await cityReady();try{if(GAR.on)leaveGarage('free');}catch(e){}await frames(3);
+  try{if(st.inCar)putPlayerInHeroCab(st.x,st.z,st.yaw);else{if(PLAYER.car)exitVehicle();PLAYER.h.place(st.x,groundAt(st.x,st.z),st.z,st.yaw);}}catch(e){console.warn('Could not put the player back',e);}
+  SKY.t=st.sky;envTimer=0;if(st.cam)edCamOn(st.cam.x,st.cam.y,st.cam.z,st.cam.yaw,st.cam.pitch,st.cam.fov);else if(st.aer){if(!AER.on)toggleAerial();Object.assign(AER,st.aer);}
+  UI.notice('The world restarted with the edited code.');}
+function cityReady(){return window.CITY_READY_P||(window.CITY_READY_P=new Promise(r=>{if(CITY_READY)r();else addEventListener('tw-city-ready',()=>r(),{once:true});}));}
+// (the entries hold plain data; plainEntries drops the elements the conversation view hangs on them)
+async function saveChat(){try{await TW_DB.set('chat',{turns:CHAT.turns.slice(-40),entries:plainEntries().slice(-150),lastTools:CHAT.lastTools,mapSent:CHAT.mapSent});}catch(e){}}
+async function loadChat(){try{const c=await TW_DB.get('chat');if(c){CHAT.turns=c.turns||[];CHAT.entries=c.entries||[];CHAT.lastTools=c.lastTools||'';CHAT.mapSent=!!c.mapSent;}}catch(e){}}
+
+// ================= THE PROMPT BAR =================
+// A bar at the top of the game (below the menu and fare buttons on a phone). Clicking into it puts the game in editor mode: a tap
+// on the view tags what is there, a drag still looks around, keys go to the text; × (or Esc) gives the game back. The
+// conversation folds out under the bar.
+const CSS=`
+#twe{position:absolute;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(660px,calc(100vw - 170px));z-index:35;display:none;flex-direction:column;gap:6px;
+ font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f1e7cf;pointer-events:none}
+#twe.on{display:flex}#twe>*{pointer-events:auto}
+@media (max-width:720px){#twe{top:calc(68px + env(safe-area-inset-top,0px));width:calc(100vw - 24px)}}
+.twe-bar{display:flex;align-items:flex-end;gap:6px;background:rgba(21,17,12,.9);border:1px solid rgba(201,161,74,.6);border-radius:14px;padding:6px;box-shadow:0 6px 24px rgba(0,0,0,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+body.twe-edit .twe-bar{border-color:#e9c46a;box-shadow:0 0 0 2px rgba(233,196,106,.35),0 6px 24px rgba(0,0,0,.5)}
+.twe-in{flex:1;min-width:0;resize:none;border:0;outline:0;background:transparent;color:#f4ecd6;font:16px/1.35 system-ui,-apple-system,sans-serif;padding:7px 4px;max-height:132px}
+.twe-in::placeholder{color:#a8997a}
+.twe-b{flex:none;height:36px;min-width:36px;border-radius:10px;border:1px solid rgba(201,161,74,.45);background:rgba(40,33,24,.92);color:#f1e7cf;display:grid;place-items:center;cursor:pointer;padding:0 8px;touch-action:manipulation;font:13px system-ui,sans-serif}
+.twe-b:hover,.twe-b:focus-visible{border-color:#e0bd66;outline:none}.twe-b svg{width:18px;height:18px;display:block}
+.twe-go{background:#e9d9ab;color:#1b1712;border-color:#e9d9ab}.twe-go.stop{background:#e2583b;border-color:#e2583b;color:#fff}
+.twe-x{display:none}body.twe-edit .twe-x{display:grid}
+.twe-who{font:13px Limelight,Georgia,serif;letter-spacing:.06em;display:flex;align-items:center;gap:7px}
+.twe-dot{width:8px;height:8px;border-radius:50%;background:#7d705a}.twe-dot.ok{background:#8fce72}.twe-dot.busy{background:#e9c46a;animation:twePulse 1s ease-in-out infinite}.twe-dot.err{background:#e2583b}
+@keyframes twePulse{50%{opacity:.35}}
+.twe-chips{display:flex;flex-wrap:wrap;gap:6px}.twe-chips:empty{display:none}
+.twe-chip{display:flex;align-items:center;gap:6px;background:rgba(21,17,12,.9);border:1px solid rgba(233,196,106,.55);border-radius:16px;padding:3px 4px 3px 3px;font-size:12.5px;max-width:100%}
+.twe-chip b{display:grid;place-items:center;min-width:20px;height:20px;border-radius:10px;background:#e9c46a;color:#1b1712;font-size:11.5px;padding:0 4px}
+.twe-chip img{width:34px;height:26px;object-fit:cover;border-radius:6px}.twe-chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+.twe-chip button{border:0;background:transparent;color:#d6c396;cursor:pointer;font-size:12px;line-height:1;padding:3px 6px;border-radius:8px}.twe-chip button:hover{background:rgba(255,255,255,.08)}
+.twe-refbar{display:none;align-items:center;gap:8px;background:rgba(21,17,12,.9);border:1px solid rgba(201,161,74,.4);border-radius:12px;padding:5px 10px;font-size:12px}
+.twe-refbar.on{display:flex}.twe-refbar input{flex:1;min-width:60px;accent-color:#c9a14a}
+.twe-panel{background:rgba(21,17,12,.92);border:1px solid rgba(201,161,74,.4);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.5);display:none;flex-direction:column;max-height:min(46vh,500px)}
+#twe.open .twe-panel{display:flex}
+.twe-log{overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain;min-height:0}
+.twe-u{align-self:flex-end;max-width:88%;background:rgba(233,217,171,.14);border:1px solid rgba(233,217,171,.25);border-radius:12px 12px 4px 12px;padding:7px 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.twe-u img{display:inline-block;height:44px;border-radius:6px;margin:4px 4px 0 0;vertical-align:middle}
+.twe-a{overflow-wrap:anywhere}.twe-a p{margin:.15em 0 .5em}.twe-a ul,.twe-a ol{margin:.15em 0 .5em;padding-left:1.3em}.twe-a a{color:#e9c46a}
+.twe-a code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.08);padding:1px 4px;border-radius:4px}
+.twe-a pre{overflow:auto;background:rgba(0,0,0,.35);padding:8px;border-radius:8px;font:12px/1.4 ui-monospace,Menlo,monospace;white-space:pre}
+.twe-a.wait{color:#bba982;font-style:italic}
+.twe-t{font-size:12px;color:#bba982}.twe-t summary{cursor:pointer;list-style:none}.twe-t summary::-webkit-details-marker{display:none}
+.twe-t pre{white-space:pre-wrap;max-height:200px;overflow:auto;font:11.5px ui-monospace,Menlo,monospace;color:#d8ccb0;background:rgba(0,0,0,.3);padding:6px;border-radius:6px;margin:4px 0 0}
+.twe-t.bad{color:#e8927b}.twe-n{font-size:12.5px;color:#e9c46a}.twe-e{font-size:12.5px;color:#f0a58f}
+.twe-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;border-top:1px solid rgba(201,161,74,.25);font-size:12px;color:#bba982}
+.twe-foot .twe-st{flex:1;min-width:120px}
+.twe-foot button{font:12px system-ui,sans-serif;border:1px solid rgba(201,161,74,.45);background:rgba(40,33,24,.92);color:#f1e7cf;border-radius:8px;padding:5px 9px;cursor:pointer}
+.twe-foot button:disabled{opacity:.4;cursor:default}.twe-foot button.hot{background:#e9d9ab;color:#1b1712;border-color:#e9d9ab}
+.twe-pick{position:absolute;inset:0;z-index:30;display:none;cursor:crosshair;touch-action:none}body.twe-edit .twe-pick{display:block}
+body.twe-edit #game::after{content:'';position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 2px rgba(233,196,106,.55);z-index:31}
+.twe-ref{position:absolute;inset:0;z-index:25;pointer-events:none;display:none}.twe-ref.on{display:block}.twe-ref img{width:100%;height:100%;object-fit:contain}
+body.twe-on #street{top:calc(96px + env(safe-area-inset-top,0px))}body.twe-on #toast{top:calc(122px + env(safe-area-inset-top,0px))}
+@media (max-width:720px){body.twe-on #street{top:calc(140px + env(safe-area-inset-top,0px))}body.twe-on #toast{top:calc(172px + env(safe-area-inset-top,0px))}}
+#devPanel .twe-p{text-align:left;color:#e6dcc2}#devPanel .twe-p .note{color:#bba982;font-size:.78rem;text-align:left;margin:.4rem 0}#devPanel .twe-p ul{margin:.3rem 0 .6rem;padding-left:1.1rem;color:#d6c396;font-size:.8rem}
+#devPanel .twe-p .ok{color:#8fce72}#devPanel .twe-p .bad{color:#f0a58f}
+@media (prefers-reduced-motion:reduce){.twe-dot.busy{animation:none}}`;
+const ICON={pic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="12" cy="12" r="3.4"/><path d="M8 5l1.5-2h5L16 5"/></svg>',
+ send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>',
+ stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>',
+ x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'};
+const MODE={on:false};const TAGS=[],PHOTOS=[];let tagSeq=0;
+const UI={ready:false,root:null,input:null,log:null,st:null,dot:null,go:null,chips:null,refbar:null,ref:null,next:null,cur:null,
+  busy(on){if(!this.ready)return;this.go.innerHTML=on?ICON.stop:ICON.send;this.go.classList.toggle('stop',on);this.go.title=on?'Stop':'Send (Enter)';this.dot.className='twe-dot '+(on?'busy':(CAP.sample?'ok':''));if(on)this.status('');this.refreshFoot();},
+  status(t){if(this.ready)this.st.textContent=t||'';},
+  notice(t,bad){addEntry({t:bad?'e':'n',text:t});},
+  streamText(text){const c=this.cur;if(!c)return;c.text=text;if(c.raf)return;c.raf=requestAnimationFrame(()=>{c.raf=0;c.el.classList.remove('wait');c.el.innerHTML=md(c.text);scrollDown();});},
+  toolStart(name,input){const it={t:'tool',name,args:toolArgs(name,input||{}),ok:null,brief:'',detail:''};if(this.cur&&!this.cur.text)this.cur.el.textContent='Working…';addEntry(it,true);return it;},
+  toolEnd(it,ok,text){it.ok=ok;it.brief=clip(String(text).split('\n').find(l=>l.trim())||'',110);it.detail=clip(String(text),4000);renderTool(it);},
+  refreshEdits(){this.refreshFoot();if(DEVUI.tab==='claude'&&STATE.paused)try{buildDev();}catch(e){}},
+  refreshFoot(){if(!this.ready)return;const f=this.foot;f.undo.disabled=RUN.busy||!SRCM.undo.length;f.save.style.display=unsaved()&&!RUN.busy?'':'none';f.cam.style.display=EDCAM.on?'':'none';
+    f.next.style.display=this.next&&!RUN.busy?'':'none';f.clear.disabled=RUN.busy;}};
+function toolArgs(n,o){switch(n){case'read_code':return o.name||o.section||`${o.start_line||1}-${o.end_line||''}`;case'search_code':return JSON.stringify(o.query||'');case'edit_code':return o.summary||`${(o.edits||[]).length} change(s)`;
+  case'rebuild':return String(o.scope||'');case'run_js':return clip(String(o.code||'').replace(/\s+/g,' '),60);case'set_camera':return(o.mode||'free')+(o.x!=null?` (${r1(+o.x)}, ${r1(+o.y||0)}, ${r1(+o.z||0)})`:'');
+  case'find_assets':return o.query?JSON.stringify(o.query):o.near?`near (${r1(+o.near.x)}, ${r1(+o.near.z)})`:'';case'restart_world':return clip(String(o.reason||''),60);default:return'';}}
+const TOOL_WORDS={read_code:'Read',search_code:'Searched',edit_code:'Edited',rebuild:'Rebuilt',run_js:'Ran',set_camera:'Moved the camera',describe_view:'Looked at the view',find_assets:'Looked up',restart_world:'Restart after this answer',code_map:'Read the code map'};
+// a small, safe Markdown: the text is escaped first; fences, `code`, **bold**, *italic*, lists, headings and http(s) links
+function md(src){const blocks=[];let s=esc(src).replace(/```[\w-]*\n([\s\S]*?)(```|$)/g,(m,c)=>{blocks.push(`<pre>${c}</pre>`);return`\u0001${blocks.length-1}\u0001`;});
+  const inl=t=>t.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g,'$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  let out='',list=null;for(const ln of s.split('\n')){const b=ln.match(/^\s*[-*•]\s+(.*)/),n=ln.match(/^\s*\d+[.)]\s+(.*)/),h=ln.match(/^\s*#{1,4}\s+(.*)/);
+    if(b||n){const tg=b?'ul':'ol';if(list!==tg){if(list)out+=`</${list}>`;out+=`<${tg}>`;list=tg;}out+=`<li>${inl((b||n)[1])}</li>`;continue;}
+    if(list){out+=`</${list}>`;list=null;}const tr=ln.trim();if(/^\u0001\d+\u0001$/.test(tr)){out+=tr;continue;}if(h){out+=`<p><b>${inl(h[1])}</b></p>`;continue;}if(tr)out+=`<p>${inl(ln)}</p>`;}
+  if(list)out+=`</${list}>`;return out.replace(/\u0001(\d+)\u0001/g,(m,i)=>blocks[+i]);}
+function scrollDown(){const l=UI.log;if(l&&l.scrollHeight-l.scrollTop-l.clientHeight<160)l.scrollTop=l.scrollHeight;}
+function renderTool(it){if(!it.el)return;it.el.className='twe-t'+(it.ok===false?' bad':'');const s=it.el.querySelector('summary');
+  s.textContent=`${it.ok===null?'…':it.ok?'✓':'✗'} ${TOOL_WORDS[it.name]||it.name}${it.args?' '+it.args:''}${it.ok===false?': '+it.brief:''}`;it.el.querySelector('pre').textContent=it.detail||'';}
+function renderEntry(e){let el;
+  if(e.t==='u'){el=$e('div','twe-u',UI.log,e.text);for(const p of e.pics||[]){const i=$e('img','',el);i.src=p;i.alt='photo';}}
+  else if(e.t==='a'){el=$e('div','twe-a',UI.log);el.innerHTML=md(e.text||'');}
+  else if(e.t==='tool'){el=$e('details','twe-t',UI.log);$e('summary','',el);$e('pre','',el);e.el=el;renderTool(e);}
+  else el=$e('div',e.t==='e'?'twe-e':'twe-n',UI.log,e.text);
+  return el;}
+function addEntry(e,live){CHAT.entries.push(e);if(UI.ready){renderEntry(e);UI.root.classList.add('open');scrollDown();}if(!live)saveChat();return e;}
+// the entries array keeps plain data for saving; drop the elements before it goes to IndexedDB
+const plainEntries=()=>CHAT.entries.map(({el,...r})=>r);
+
+// ================= EDITOR MODE, TAGS AND PHOTOS =================
+function enterEditor(){if(MODE.on)return;MODE.on=true;document.body.classList.add('twe-edit');for(const k in KEYS)KEYS[k]=false;TOUCH.x=TOUCH.y=0;TOUCH.active=false;UI.root.classList.add('open');}
+function exitEditor(){if(!MODE.on)return;MODE.on=false;document.body.classList.remove('twe-edit');UI.input.blur();try{canvasEl.focus();}catch(e){}}
+function insertAtCaret(t){const i=UI.input,a=i.selectionStart??i.value.length,b=i.selectionEnd??i.value.length,pre=i.value.slice(0,a);
+  const txt=(pre&&!/\s$/.test(pre)?' ':'')+t;i.value=pre+txt+i.value.slice(b);const p=a+txt.length;try{i.setSelectionRange(p,p);}catch(e){}autosize();}
+function tagAt(x,y){let h=null;try{h=pickAt(x,y);}catch(e){console.warn('pick',e);}if(!h){UI.status('Nothing there to tag (that is sky).');return;}
+  const a=assetOfHit(h);let t=TAGS.find(t=>t.a.key===a.key);
+  if(!t){let label=a.name.replace(/[[\]]/g,'').trim()||'thing';if(TAGS.some(q=>q.label===label))label+=' '+(tagSeq+1);t={n:++tagSeq,a,label};TAGS.push(t);highlight(a);}
+  insertAtCaret(`@[${t.label}] `);renderChips();UI.status(`Tagged ${t.label}${a.scope?` (scope #${a.scope.id})`:''}.`);if(!STATE.touch)UI.input.focus();}
+function dropTag(t){const i=TAGS.indexOf(t);if(i<0)return;TAGS.splice(i,1);unhighlight(t.a.key);UI.input.value=UI.input.value.split(`@[${t.label}]`).join('').replace(/ {2,}/g,' ');autosize();renderChips();}
+function clearTags(){for(const t of TAGS)unhighlight(t.a.key);TAGS.length=0;tagSeq=0;renderChips();}
+async function addPhotos(files){for(const f of files){if(!/^image\//.test(f.type))continue;let ex=null,bmp=null;try{ex=exifOf(await f.arrayBuffer());}catch(e){}try{bmp=await createImageBitmap(f);}catch(e){}
+  if(!bmp){UI.notice(`Couldn’t open ${f.name||'that photo'}.`,true);continue;}
+  // Claude gets at most ~1.2 MP anyway: send a 2000 px JPEG (the location, heading and lens were read from the original above)
+  const k=Math.min(1,2000/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.88)),t=document.createElement('canvas'),tk=96/Math.max(c.width,c.height);t.width=Math.max(1,Math.round(c.width*tk));t.height=Math.max(1,Math.round(c.height*tk));t.getContext('2d').drawImage(c,0,0,t.width,t.height);
+  const pose=photoPose(ex,bmp.width,bmp.height),p={name:f.name||'photo',blob,url:URL.createObjectURL(blob),thumb:t.toDataURL('image/jpeg',.7),ex,pose,meta:photoMeta(ex,pose)};
+  PHOTOS.push(p);showRef(p);if(pose&&pose.inside&&pose.heading!=null)UI.status(`This photo has a location and heading: “Go there” lines the camera up with it.`);}
+  renderChips();}
+function photoMeta(ex,pose){if(!ex||(ex.lat==null&&ex.heading==null&&!ex.focal35))return'no location data in the file (an old photograph, or a phone that left it out)';
+  const a=[];if(ex.date)a.push('taken '+ex.date);if(ex.lat!=null)a.push(`GPS ${ex.lat.toFixed(5)}, ${ex.lon.toFixed(5)} → game (${pose.x}, ${pose.z}), ${pose.place}`);
+  if(pose&&pose.heading!=null)a.push(`facing ${pose.heading}° (${compass(pose.heading)})`);if(pose&&pose.fov)a.push(`vertical field of view about ${pose.fov}°`);
+  if(pose&&pose.inside)a.push(`estimated camera pose: x ${pose.x}, y ${pose.y}, z ${pose.z}${pose.heading!=null?', heading '+pose.heading:''}${pose.fov?', fov '+pose.fov:''}`);return a.join('; ');}
+function dropPhoto(p){const i=PHOTOS.indexOf(p);if(i<0)return;PHOTOS.splice(i,1);if(UI.refP===p)showRef(PHOTOS[PHOTOS.length-1]||null);URL.revokeObjectURL(p.url);renderChips();}
+// the photo over the game, see-through, to line the view up with it (on the player camera or the free camera)
+function showRef(p){UI.refP=p||null;UI.ref.classList.toggle('on',!!p);UI.refbar.classList.toggle('on',!!p);if(p){UI.refImg.src=p.url;UI.refbar.go.style.display=p.pose&&p.pose.inside?'':'none';}}
+async function goToPhoto(p){if(!p||!p.pose)return;const o=p.pose;await setCamera({mode:'free',x:o.x,y:o.y,z:o.z,heading_deg:o.heading!=null?o.heading:camPose().heading,pitch_deg:0,fov_deg:o.fov||62});UI.refreshFoot();
+  UI.status('Free camera at the photo’s spot: drag to turn, WASD / stick to move, ▲▼ to climb, until the view matches.');}
+function renderChips(){const c=UI.chips;c.textContent='';
+  for(const t of TAGS){const ch=$e('div','twe-chip',c);$e('b','',ch,String(t.n));$e('span','',ch,t.label).title=t.a.scope?`scope #${t.a.scope.id}: ${scopeChain(t.a.scope)}`:t.a.name;const x=$e('button','',ch,'✕');x.title='Remove the tag';x.onclick=()=>dropTag(t);}
+  for(const p of PHOTOS){const ch=$e('div','twe-chip',c);const i=$e('img','',ch);i.src=p.thumb;i.alt='';$e('span','',ch,p.name).title=p.meta;
+    const v=$e('button','',ch,UI.refP===p?'Hide':'Show');v.title='Show the photo over the game';v.onclick=()=>{showRef(UI.refP===p?null:p);renderChips();};const x=$e('button','',ch,'✕');x.title='Remove the photo';x.onclick=()=>dropPhoto(p);}}
+function autosize(){const i=UI.input;i.style.height='auto';i.style.height=Math.min(132,i.scrollHeight)+'px';}
+
+// ================= SENDING =================
+async function onSend(){if(RUN.busy){if(RUN.ctl)RUN.ctl.abort();return;}const text=UI.input.value.trim();if(!text&&!PHOTOS.length)return;
+  await caps();if(!CAP.sample){UI.notice(CAP.onClaude?'Claude isn’t available in this view.':'Claude works when this game is opened on claude.ai.',true);return;}
+  const tags=TAGS.filter(t=>text.includes(`@[${t.label}]`)),photos=PHOTOS.slice();
+  addEntry({t:'u',text:text||'(photo)',pics:photos.map(p=>p.thumb)});UI.input.value='';autosize();
+  await turn(text||'Here is a photo.',{tags,photos});
+  // the tags are spent; the photo shown over the game stays in play (it goes with the next message too) until you remove it
+  clearTags();const keep=UI.refP;for(const p of photos)if(p!==keep)URL.revokeObjectURL(p.url);PHOTOS.length=0;if(keep)PHOTOS.push(keep);renderChips();}
+async function turn(prompt,o){UI.next=null;const e={t:'a',text:''};CHAT.entries.push(e);const cur={el:renderEntry(e),text:''};cur.el.classList.add('wait');cur.el.textContent='Thinking…';UI.cur=cur;UI.root.classList.add('open');scrollDown();
+  const r=await askClaude(prompt,o);UI.cur=null;e.text=r.text||'';cur.el.classList.remove('wait');
+  if(e.text)cur.el.innerHTML=md(e.text);else{cur.el.remove();CHAT.entries.splice(CHAT.entries.indexOf(e),1);}
+  if(r.err&&r.err.code!=='cancelled')UI.notice(errCopy(r.err),true);else if(r.err)UI.notice('Stopped.');
+  if(r.res&&r.res.truncated)UI.notice('The answer was cut short. Ask for less at a time, or press Continue.');
+  UI.next=r.next;const saved=await afterAnswer();if(saved&&!saved.ok)UI.notice(saved.why,true);
+  UI.refreshFoot();saveChat();scrollDown();}
+
+// ================= CONNECTING (the Developer page's Claude tab) =================
+const CONN={state:'unknown',tier:null,why:''};
+async function connect(){CONN.state='asking';CONN.why='';try{buildDev();}catch(e){}await caps();
+  if(!CAP.sample){CONN.state='off';CONN.why=CAP.onClaude?'Claude isn’t available in this view.':'Open the game on claude.ai to use Claude.';}
+  else{try{const r=await CAP.sample('Reply with exactly one word: Connected',{modelTier:'quick'});CONN.state='ok';CONN.tier=r.modelTierApplied;}catch(e){CONN.state='bad';CONN.why=errCopy(e);}}
+  if(UI.ready)UI.dot.className='twe-dot '+(CONN.state==='ok'?'ok':CONN.state==='bad'?'err':'');try{buildDev();}catch(e){}}
+function panel(P){const W=$e('div','twe-p',P),p=(t,c)=>$e('p',c||'note',W,t);
+  $e('h3','',W,'Claude');
+  if(!CAP.onClaude){p('Claude works inside the game when it is opened on claude.ai: there it uses your own Claude account and subscription, not API credits.');
+    if(window.TW_ARTIFACT_URL){const a=$e('a','',p(''));a.href=window.TW_ARTIFACT_URL;a.target='_blank';a.rel='noopener';a.textContent='Open Taxi Wars on claude.ai';a.style.color='#e9c46a';}return;}
+  p(CONN.state==='ok'?`Connected to your Claude account${CONN.tier?` (answered by the ${TIERS[CONN.tier]||CONN.tier} model)`:''}. Requests use your plan’s usage.`:
+    CONN.state==='asking'?'Asking claude.ai…':CONN.state==='bad'||CONN.state==='off'?CONN.why:'Uses your Claude account on claude.ai. The first request asks you to Allow it; after that, requests come out of your plan’s usage.',CONN.state==='ok'?'ok':CONN.state==='bad'?'bad':'note');
+  const b=$e('div','btns',W);const li=$e('button','',b,CONN.state==='ok'?'Connected ✓':'Log in with Claude');li.onclick=()=>connect();li.disabled=CONN.state==='asking';
+  $e('button','',b,'Open the prompt bar').onclick=()=>{setPause(false);setTimeout(()=>{syncVisible();UI.input.focus();},60);};
+  const r=$e('div','row',W);$e('label','',r,'Model');const sel=$e('select','',r);for(const [k,v] of Object.entries(TIERS))$e('option','',sel,v).value=k;sel.value=CFG.tier;sel.onchange=()=>{CFG.tier=sel.value;LS.set('twe.tier',sel.value);};$e('span','v',r,'');
+  p('Balanced suits most edits; Most capable thinks longer for big changes; Quick is for small tweaks. Your plan may answer with a nearby model.');
+  $e('h3','',W,'Live edits');
+  if(TWS.skipped==='crashed')p('The saved edits in this browser didn’t start last time, so the game runs the artifact’s own code. Undo or fix them with Claude, or discard them below.','bad');
+  if(TWS.skipped==='stale')p('This browser has Claude edits made on an older version of the game; the newer version runs instead. Download them below if you want them.','bad');
+  if(TWS.skipped==='safe')p('Safe mode: the saved edits in this browser are not running.','bad');
+  p(SRCM.log.length?`${SRCM.log.length} live edit${SRCM.log.length>1?'s':''} — ${unsaved()?'not saved into the artifact yet':'saved into the artifact'}.`:'No live edits yet.');
+  if(SRCM.log.length){const ul=$e('ul','',W);for(const e of SRCM.log.slice(-6).reverse())$e('li','',ul,e.summary);}
+  const b2=$e('div','btns',W);const sv=$e('button','',b2,'Save into the artifact');sv.disabled=!unsaved();sv.onclick=async()=>{sv.disabled=true;const r2=await publishSource();p(r2.why,r2.ok?'ok':'bad');UI.refreshFoot();};
+  const un=$e('button','',b2,'Undo last edit');un.disabled=!SRCM.undo.length||RUN.busy;un.onclick=()=>undoEdit();
+  $e('button','',b2,'Download taxiwars.html').onclick=()=>downloadGame();
+  if(TWS.skipped&&TWS.saved){$e('button','',b2,'Discard the old edits').onclick=async()=>{await discardEdits();TWS.skipped=null;buildDev();};}
+  $e('h3','',W,'How to use it');
+  const ul=$e('ul','',W);for(const t of['Click the bar at the top of the game (or press /). Tap anything in the view to tag it; drag to look around; × or Esc gives the game back.','Each message sends Claude a screenshot, where you are, what you tagged and the code that built it.',
+    'Add a photo (an old photograph, or one you take on the spot) to see it over the game and ask Claude to match it. Photos with a location come with “Go there”.','Edits appear in the running game at once and are saved into the artifact after each answer. Undo takes the last one back.'])$e('li','',ul,t);
+  for(const t of['keydown','keyup','keypress'])W.addEventListener(t,e=>e.stopPropagation());}
+async function undoEdit(){if(RUN.busy)return;try{const h=await stepHistory(true);if(h){UI.notice(`Undid: ${h.summary}. Rebuild what it built (ask Claude) to see the old version where it was a builder.`);RUN.edited=true;const s=await publishSource();if(!s.ok)UI.notice(s.why,true);}}
+  catch(e){UI.notice('Could not undo: '+e.message,true);}UI.refreshEdits();}
+// the repo's single-file taxiwars.html, put back together from this artifact's files and the running source. (The markup is spelled
+// with \x3C for "<": this code also sits inside an inline script element of that page, which a literal comment-open or script tag
+// would end or derail.)
+const LT='\x3C',TAG={begin:LT+'!--TW-PAGE-BEGIN-->',end:LT+'!--TW-PAGE-END-->',head:LT+'!--TW-HEAD-END-->',game:LT+'!--TW-GAME-->',editor:LT+'!--TW-EDITOR-->',open:LT+'script',close:LT+'/script>'};
+async function singleFileHTML(){const get=async p=>{const r=await fetch(p,{cache:'no-cache'});if(!r.ok)throw new Error(`${p} (${r.status})`);return r.text();};
+  const page=await get(location.href.split('#')[0]),a=page.indexOf(TAG.begin),b=page.lastIndexOf(TAG.end);if(a<0||b<a)throw new Error('the page markers are missing');
+  const body=page.slice(a+TAG.begin.length,b),cut=body.indexOf(TAG.head);if(cut<0)throw new Error('the head marker is missing');
+  const data=await get('data.js'),ed=await get('editor.js'),T=TAG;
+  const rest=body.slice(cut+T.head.length).replace(`${T.open} src="data.js">${T.close}`,()=>`${T.open}>${data}${T.close}`).replace(T.game,()=>`${T.open} type="text/x-taxiwars" id="twGame">${SRCM.text}${T.close}`)
+    .replace(T.editor,()=>`${T.open} type="text/x-claude-editor" id="twEditor">${ed}${T.close}`);
+  return`${LT}!DOCTYPE html>\n${LT}html lang="en">\n${LT}head>\n${LT}meta charset="utf-8">\n${LT}meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">${body.slice(0,cut)}${LT}/head>\n${LT}body>${rest}${LT}/body>\n${LT}/html>\n`;}
+async function downloadGame(){await caps();if(!CAP.downloads){UI.notice('Saving files isn’t available in this view.',true);return;}let html;
+  try{html=await singleFileHTML();}catch(e){UI.notice('Couldn’t put taxiwars.html together: '+e.message,true);return;}
+  try{await CAP.downloads.save({filename:'taxiwars.html',data:new Blob([html],{type:'text/html'})});UI.notice('Saved taxiwars.html.');}
+  catch(e){if(!e||e.code!=='declined')UI.notice('The file wasn’t saved: '+((e&&(e.message||e.code))||e),true);}}
+
+// ================= BUILDING THE UI =================
+function buildUI(){const st=document.createElement('style');st.textContent=CSS;document.head.appendChild(st);const game=document.getElementById('game');
+  const root=$e('div','',game);root.id='twe';UI.root=root;const bar=$e('div','twe-bar',root);
+  const who=$e('button','twe-b twe-who',bar);UI.dot=$e('span','twe-dot',who);$e('span','',who,'Claude');who.title='Show or hide the conversation';who.onclick=()=>root.classList.toggle('open');
+  const inp=$e('textarea','twe-in',bar);inp.rows=1;inp.placeholder='Ask Claude to change anything… tap the game to tag things';inp.setAttribute('aria-label','Message to Claude');UI.input=inp;
+  const file=$e('input','',root);file.type='file';file.accept='image/*';file.multiple=true;file.hidden=true;file.onchange=()=>{addPhotos([...file.files]);file.value='';};
+  const pic=$e('button','twe-b',bar);pic.innerHTML=ICON.pic;pic.title='Add a photo (a historical picture, or one you take here)';pic.onclick=()=>{enterEditor();file.click();};
+  const go=$e('button','twe-b twe-go',bar);go.innerHTML=ICON.send;go.title='Send (Enter)';go.onclick=()=>onSend();UI.go=go;
+  const x=$e('button','twe-b twe-x',bar);x.innerHTML=ICON.x;x.title='Back to the game (Esc)';x.onclick=()=>exitEditor();
+  UI.chips=$e('div','twe-chips',root);
+  const rb=$e('div','twe-refbar',root);UI.refbar=rb;$e('span','',rb,'Photo over the game');const op=$e('input','',rb);op.type='range';op.min='0';op.max='100';op.value='50';op.setAttribute('aria-label','Photo opacity');
+  rb.go=$e('button','twe-b',rb,'Go there');rb.go.onclick=()=>goToPhoto(UI.refP);const hide=$e('button','twe-b',rb,'Hide');hide.onclick=()=>{showRef(null);renderChips();};
+  const ref=$e('div','twe-ref',game);UI.ref=ref;UI.refImg=$e('img','',ref);UI.refImg.alt='';op.oninput=()=>{UI.refImg.style.opacity=String(op.value/100);};UI.refImg.style.opacity='.5';
+  const pan=$e('div','twe-panel',root);UI.log=$e('div','twe-log',pan);const foot=$e('div','twe-foot',pan);UI.st=$e('span','twe-st',foot);UI.foot={};
+  const fb=(k,t,fn,cls)=>{const b=$e('button',cls||'',foot,t);b.onclick=fn;UI.foot[k]=b;return b;};
+  fb('next','Continue',()=>{if(RUN.busy)return;const n=UI.next;UI.next=null;addEntry({t:'u',text:'Continue'});turn(`Continue: ${n}`,{shown:'Continue',photos:PHOTOS.slice()});},'hot');
+  fb('save','Save',async()=>{const r=await publishSource();UI.status(r.why);UI.refreshFoot();});
+  fb('cam','Back to player',async()=>{await setCamera({mode:'player'});showRef(null);renderChips();UI.refreshFoot();});
+  fb('undo','Undo edit',()=>undoEdit());
+  fb('clear','New chat',()=>{if(RUN.busy)return;CHAT.turns=[];CHAT.entries=[];CHAT.lastTools='';CHAT.mapSent=false;UI.log.textContent='';UI.next=null;saveChat();UI.refreshFoot();});
+  const pick=$e('div','twe-pick',game);let down=null;
+  pick.addEventListener('pointerdown',e=>{down={id:e.pointerId,x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,t:performance.now(),moved:false};try{pick.setPointerCapture(e.pointerId);}catch(err){}});
+  pick.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>8)down.moved=true;
+    if(down.moved&&e.pointerType!=='mouse'){MOUSE_DX+=(e.clientX-down.lx)*2.2;MOUSE_DY+=(e.clientY-down.ly)*2.2;}down.lx=e.clientX;down.ly=e.clientY;});
+  const up=e=>{if(!down||e.pointerId!==down.id)return;const d=down;down=null;if(e.type==='pointerup'&&!d.moved&&performance.now()-d.t<700)tagAt(e.clientX,e.clientY);};
+  pick.addEventListener('pointerup',up);pick.addEventListener('pointercancel',up);pick.addEventListener('contextmenu',e=>e.preventDefault());
+  inp.addEventListener('focus',()=>enterEditor());inp.addEventListener('input',autosize);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();onSend();}else if(e.key==='Escape'){e.preventDefault();exitEditor();}});
+  for(const t of['keydown','keyup','keypress'])root.addEventListener(t,e=>e.stopPropagation());
+  // while you write, the game hears no keys (they would drive the car); / opens the bar from the game
+  addEventListener('keydown',e=>{if(STATE.paused||!root.classList.contains('on')||root.contains(e.target))return;
+    if(MODE.on){if(e.key==='Escape'){e.preventDefault();exitEditor();}e.stopImmediatePropagation();return;}
+    if(e.key==='/'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();e.stopImmediatePropagation();inp.focus();}},true);
+  addEventListener('keyup',e=>{if(MODE.on&&!STATE.paused&&!root.contains(e.target))e.stopImmediatePropagation();},true);
+  UI.ready=true;for(const e of CHAT.entries)renderEntry(e);UI.refreshFoot();}
+// the bar shows while you are out in the city (not in the garage, the menu or the map)
+function syncVisible(){if(!UI.ready)return;const map=document.getElementById('mapView');
+  const on=CAP.onClaude&&STATE.started&&!GAR.on&&!STATE.paused&&!(map&&map.style.display==='block');UI.root.classList.toggle('on',on);document.body.classList.toggle('twe-on',on);
+  if(!on&&MODE.on)exitEditor();UI.refreshFoot();}
+
+// ================= START =================
+window.TWE={panel,open(){syncVisible();UI.input.focus();},version:1};
+(async()=>{await loadChat();buildUI();setInterval(syncVisible,300);syncVisible();
+  if(TWS.skipped==='crashed')UI.notice('The Claude edits saved in this browser didn’t start last time, so the original code is running. Ask Claude to fix them, or discard them in Developer › Claude.',true);
+  caps().then(()=>{UI.dot.className='twe-dot '+(CAP.sample?'ok':'');});resume();})();
+})();
+</script>
+<!--CLAUDE-EDITOR-END-->
 <script type="module">
 // three.js r186 (an ES module) loads first; the game is a classic script that expects a global THREE, so it is started once
 // three.js is here. Colour management stays off: the game converts its colours to linear where it makes them (see C()).
 // ez-tree (procedural trees, MIT, by Daniel Greenheck) loads alongside; the park waits for it a few seconds at most.
-import * as THREE from 'three';
+// (three by its full address: inside a claude.ai frame the import map may come too late for this module; ez-tree's own
+// `import 'three'` goes through the map to the same file, so both share one three.js)
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js';
 window.THREE=THREE;THREE.ColorManagement.enabled=false;
 window.EZTREE_READY=import('ez-tree').then(m=>(window.EZTREE=m)).catch(e=>{console.warn('ez-tree unavailable: the park keeps simple trees',e);return null;});
-const src=document.getElementById('twGame'),run=document.createElement('script');run.textContent=src.textContent;document.body.appendChild(run);
+// the claude.ai artifact this game is published as (Developer > Claude links to it when the game runs anywhere else)
+window.TW_ARTIFACT_URL='https://claude.ai/artifact/G7jt8pZXW9oXKsxFACmAE5';
+// The game's source is the page's own twGame script (the single-file taxiwars.html) or, on claude.ai, the artifact's game.js.
+// The copy the Claude editor kept in this browser after live edits runs instead when it was made on that same source, or on one
+// this page saved since (its bases) - not when it failed to start last time in this tab, and not with ?safe in the address.
+const TW_DB=window.TW_DB=(()=>{let dbp=null;
+  const open=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open('taxiwars-claude',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);}));
+  const tx=(mode,fn)=>open().then(db=>new Promise((res,rej)=>{const t=db.transaction('kv',mode),q=fn(t.objectStore('kv'));t.oncomplete=()=>res(q.result);t.onerror=t.onabort=()=>rej(t.error);}));
+  return{get:k=>tx('readonly',s=>s.get(k)),set:(k,v)=>tx('readwrite',s=>s.put(v,k)),del:k=>tx('readwrite',s=>s.delete(k))};})();
+const hashText=window.TW_HASH=s=>{let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}return(h>>>0).toString(16).padStart(8,'0')+':'+s.length;};
+const ss={get:k=>{try{return sessionStorage.getItem(k);}catch(e){return null;}},set:(k,v)=>{try{sessionStorage.setItem(k,v);}catch(e){}},del:k=>{try{sessionStorage.removeItem(k);}catch(e){}}};
+const bootFail=msg=>{const b=document.getElementById('boot');if(!b)return;b.innerHTML='<span></span>';const t=b.querySelector('span');t.textContent=msg;t.style.animation='none';t.style.opacity='1';t.style.letterSpacing='.08em';t.style.textTransform='none';};
+const inl=document.getElementById('twGame');let ship=inl?inl.textContent:null;
+if(ship===null){try{const r=await fetch('game.js',{cache:'no-cache'});if(!r.ok)throw new Error('HTTP '+r.status);ship=await r.text();}catch(e){bootFail('Could not load the game (game.js): '+e.message);throw e;}}
+const SRCI=window.TW_SRC={base:hashText(ship),shipped:ship,text:ship,edited:false,skipped:null,saved:null};
+try{SRCI.saved=await Promise.race([TW_DB.get('source'),new Promise(r=>setTimeout(()=>r(null),1500))])||null;}catch(e){SRCI.saved=null;}
+const sv=SRCI.saved;let flagged=false;
+if(sv&&sv.text&&sv.text!==ship){if(!(sv.bases||[sv.base]).includes(SRCI.base))SRCI.skipped='stale';else if(/[?&]safe\b/.test(location.search))SRCI.skipped='safe';else if(ss.get('twe.boot')==='edited')SRCI.skipped='crashed';
+  else{SRCI.text=sv.text;SRCI.edited=true;ss.set('twe.boot','edited');flagged=ss.get('twe.boot')==='edited';addEventListener('tw-city-ready',()=>ss.del('twe.boot'),{once:true});}}
+// Run it as a classic script, so its top-level names are the page's globals (the editor swaps functions in the same way): inline,
+// or from a blob: URL where the page's security policy refuses inline scripts. The flag at its end tells a refused script (which
+// never runs) from one that ran and threw.
+const RUNI=window.TW_RUN={mode:'inline'},code=SRCI.text+'\n;window.__twGameRan=true;\n//# sourceURL=taxiwars-game.js';
+let startErr=null;const onErr=e=>{startErr=startErr||e;};addEventListener('error',onErr);
+{const s=document.createElement('script');s.textContent=code;document.body.appendChild(s);}
+if(!window.__twGameRan&&!startErr){RUNI.mode='blob';const u=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));
+  await new Promise(res=>{const s=document.createElement('script');s.src=u;s.onload=s.onerror=()=>res();document.body.appendChild(s);});}
+removeEventListener('error',onErr);
+if(!window.__twGameRan&&!startErr)bootFail('This page won’t run the game’s code here (a security setting blocks it).');
+// edited code that throws while it starts: reload, and the page's own source runs this time (the boot flag is still up)
+else if(startErr&&SRCI.edited&&flagged){console.error('The saved Claude edits failed to start; reloading the original game.',startErr.error||startErr.message);location.reload();}
+// on claude.ai the Claude editor starts with the game (elsewhere it loads when you open Developer > Claude)
+else if(window.claude&&typeof window.claude.use==='function'&&typeof window.loadEditor==='function')window.loadEditor();
 </script>
 <script>
 // no three.js after 20 s (offline?): say so instead of leaving the loader up
