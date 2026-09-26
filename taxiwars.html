@@ -87,7 +87,6 @@ body{height:100%;margin:0;background:var(--coal);color:var(--ink);overflow:hidde
 #raceMessage{position:absolute;top:28%;width:100%;text-align:center;font:500 48px Georgia;color:#ffebbd;text-shadow:0 3px 15px #000}#raceMessage small{display:block;font:12px system-ui;margin-top:12px;letter-spacing:.10em}
 #impactFlash{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 70px #bd572a;opacity:0;transition:opacity .25s;z-index:9}
 #fareBtn{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(14px + env(safe-area-inset-top,0px));z-index:22;background:#efc53e;color:#242016;border:2px solid #ffe18a;font:800 13px system-ui,sans-serif;padding:12px 18px;border-radius:30px;box-shadow:0 3px 15px #0007;touch-action:manipulation;display:none;cursor:pointer}
-#rightBtn{position:absolute;left:50%;bottom:24%;transform:translateX(-50%);z-index:22;display:none;background:rgba(27,23,18,.9);color:#f1e7cf;border:1px solid #c9a14a;font:1rem Limelight,Georgia,serif;letter-spacing:.06em;padding:.75rem 1.3rem;border-radius:26px;cursor:pointer;touch-action:manipulation;box-shadow:0 3px 15px #0008}
 #tbtns{position:absolute;right:3%;bottom:12%;display:grid;grid-template-columns:repeat(2,64px);gap:10px;pointer-events:auto}
 #tbtns button{width:64px;height:64px;border-radius:50%;border:2px solid rgba(201,161,74,.7);background:rgba(27,23,18,.55);color:var(--enamel);font-family:Limelight,Georgia,serif;font-size:.8rem}
 body.touch #radar{display:none}
@@ -158,7 +157,6 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!import
 </div>
 <div id="impactFlash"></div>
 <button id="fareBtn">Pickup fare</button>
-<button id="rightBtn">&#8635; Right the car</button>
 <div id="aimDot"></div>
 <div id="garageUI"><div id="garageTitle">TAXI WARS &middot; CHICAGO 1928<b>Choose your cab</b></div><div class="garageBottom"><div id="skinName">Yellow Cab</div><div id="skinDetail">327 &middot; ORIGINAL YELLOW</div><div class="garageActions"><div id="garageLoad">
   <svg id="route" viewBox="0 0 460 150" aria-label="Loading progress">
@@ -194,14 +192,14 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!import
     <tr><td>Space</td><td>Jump on foot, handbrake in a car</td></tr>
     <tr><td>Q</td><td>Horn</td></tr>
     <tr><td>P</td><td>Pick up a fare</td></tr>
-    <tr><td>R</td><td>Right an overturned car</td></tr>
+    <tr><td>A / D</td><td>Overturned? Rock the car side to side and it rolls back onto its wheels</td></tr>
     <tr><td>L</td><td>Headlamps</td></tr>
     <tr><td>C</td><td>Camera distance</td></tr>
     <tr><td>M</td><td>Aerial view</td></tr>
     <tr><td>On the L</td><td>Climb a station's stairs; E boards a train standing at the platform and gets off at a stop; C changes the view; pick a station on the little Loop (or press 1-6) to ride straight there</td></tr>
     <tr><td>T</td><td>Skip ahead one hour</td></tr>
     <tr><td>H / Esc</td><td>This menu</td></tr>
-    <tr><td>Thumb stick</td><td>Let go and it re-centres into a BRAKE button: press it to brake, push up to drive on</td></tr>
+    <tr><td>Thumb stick</td><td>In a car it becomes a BRAKE button the moment you let go: touch it to brake, push up to drive on</td></tr>
    </table></details>
    <button id="mBack">Back</button>
   </div>
@@ -997,7 +995,7 @@ function samplePath(path,s,out){const P=path.P;if(path.closed){s=((s%path.len)+p
 // floors, each with a covered stair from the pavement at one end: 49 risers of 17 cm with a half landing, running along the kerb
 // and reaching the platform over a landing. lTerrain gives the walking surfaces (groundAt asks it first, with the walker's height,
 // so the street under the L stays the street); stairs, landings and platforms have their railings as colliders.
-const L_TIE=L_DECK+.2,L_RAIL=L_DECK+.35,L_PLAT=L_RAIL+1.1;
+const L_TIE=L_DECK+.2,L_RAIL=L_DECK+.35,L_PLAT=L_RAIL+.6;
 // the loop's centreline as a rounded rectangle (centre, half sizes; corner radius L_R)
 const L_BOX={cx:-60,cz:20,hx:270,hz:350};
 // a platform, across the track (metres out from the centreline): from the track's edge to its railing; the landing reaches on to
@@ -1032,6 +1030,10 @@ function lPlatAt(x,z){for(const p of L_PLATS){lLocal(p,x,z,_lsl);const a=_lsl.a,
 function lRoofOver(x,z,y){
   for(const p of L_PLATS){if(x<p.sb[0]||x>p.sb[2]||z<p.sb[1]||z>p.sb[3])continue;lLocal(p,x,z,_lsl);const h=lStairH(p,_lsl.a);if(h!==null&&y>h-.3)return h+2.5;}
   return y>L_PLAT-.3&&lPlatAt(x,z)?L_PLAT+3.1:null;}
+// the stair a walker at (x,y,z) is on, and how far up its run from the foot (o.p, o.u); a metre of the pavement before the foot
+// and of the landing past the head count too. null off every stair.
+function lStairAt(x,z,y,o){for(const p of L_PLATS){if(x<p.sb[0]-1.5||x>p.sb[2]+1.5||z<p.sb[1]-1.5||z>p.sb[3]+1.5)continue;lLocal(p,x,z,_lsl);
+    if(_lsl.l<LP.s0-.25||_lsl.l>LP.s1+.25)continue;const u=(_lsl.a-p.aBot)*-p.down;if(u<-1||u>LS.run+1||Math.abs(y-lStairY(p,u))>.7)continue;o.p=p;o.u=u;return o;}return null;}
 // kerb furniture keeps m metres clear of the stairs and landing posts
 function lKeep(x,z,m){for(const r of L_KEEP)if(x>r[0]-m&&x<r[2]+m&&z>r[1]-m&&z<r[3]+m)return true;return false;}
 // building on a platform's frame: a box (centre along, centre across, bottom; sizes along, across, up), a collider, a beam between
@@ -1101,11 +1103,13 @@ function buildStation(st,i){srcMark(st.n+' station');
       addCol({circle:1,x:lWorld(p,a,6.1,_lsw).x,z:_lsw.z,r:.16,y0:L_PLAT-.5,y1:L_PLAT+3.4,tag:'post'});}
     const tilt=Math.atan2(.32,3.9);lTilt(p,'roof',0,4.95,L_PLAT+3.36,2*H+.4,4.1,.09,tilt,roofC);
     for(const [l,y] of [[2.92,L_PLAT+3.02],[6.98,L_PLAT+3.34]]){lBox(p,'paint',0,l,y,2*H+.4,.07,.3,green);lBox(p,'paint',0,l+(l<5?-.02:.02),y-.05,2*H+.4,.05,.06,cream);}
-    for(let a=-H+6;a<=H-6;a+=12){lBox(p,'metal',a,4.7,L_PLAT+2.85,.03,.03,.38,iron);lBox(p,'glow',a,4.7,L_PLAT+2.66,.26,.26,.22,C('#f3dca0'));}
+    // lamps under the canopy: an enamelled shade over a bulb, lit to the level of the city's own lights (a bright 'glow' flares in
+    // the bloom at night)
+    for(let a=-H+6;a<=H-6;a+=12){lBox(p,'metal',a,4.7,L_PLAT+2.85,.03,.03,.38,iron);lWorld(p,a,4.7,_lsw);cyl('paint',_lsw.x,L_PLAT+2.74,_lsw.z,.05,.2,.11,12,green);sph('glow',_lsw.x,L_PLAT+2.71,_lsw.z,.075,C('#f3dca0').multiplyScalar(.4));}
     for(const a of [-14,14])for(const f of [1,-1]){lWorld(p,a,3.95,_lsw);signQuad('streetsign',_lsw.x+p.nx*f*.03,L_PLAT+2.55,_lsw.z+p.nz*f*.03,-p.nx*f,-p.nz*f,5.2,.5,streetUV(st.n));}
     // ----- the agent's booth near the stair end, benches facing the track, and where people wait -----
     const b0=e*15.4,b1=e*20.6,bc=(b0+b1)/2;lBox(p,'paint',bc,5.88,L_PLAT,5.2,1.3,2.6,green);lBox(p,'paint',bc,5.88,L_PLAT+2.6,5.5,1.5,.12,cream);lBox(p,'roof',bc,5.88,L_PLAT+2.72,5.6,1.6,.1,roofC);
-    for(const a of [bc-1.5,bc+.2])lBox(p,'glow',a,5.2,L_PLAT+1.05,1.2,.04,.95,C('#e8d6a0'));lBox(p,'plain',bc+1.75,5.21,L_PLAT,.9,.04,2.1,C('#241c14'));
+    for(const a of [bc-1.5,bc+.2])lBox(p,'glow',a,5.2,L_PLAT+1.05,1.2,.04,.95,C('#e8d6a0').multiplyScalar(.22));lBox(p,'plain',bc+1.75,5.21,L_PLAT,.9,.04,2.1,C('#241c14'));
     lCol(p,Math.min(b0,b1),Math.max(b0,b1),5.2,LP.l1,L_PLAT-.2,L_PLAT+2.8);
     const face=Math.atan2(-p.nx,-p.nz);
     for(const a of [-e*6,-e*12,-e*24]){lWorld(p,a,6.06,_lsw);lBench(_lsw.x,_lsw.z,face);BENCHES.push({x:_lsw.x,z:_lsw.z,yaw:face,y0:L_PLAT,alive:true,tried:false,sit:null});
@@ -3295,10 +3299,20 @@ function flipStep(v,dt){const g=9.8,hc=v.h*.42;v.flipT=(v.flipT||0)+dt;const e=.
   if(touching&&sp>1e-3){const dec=Math.min(sp,.5*g*dt);v.vel.x-=v.vel.x/sp*dec;v.vel.z-=v.vel.z/sp*dec;v.r*=1-dt*2.2;
     if(sp>2.2&&(Math.abs(v.q)>.85||Math.abs(v.p)>.8)){v.sparkT=(v.sparkT||0)-dt;if(v.sparkT<=0){v.sparkT=.03;
       for(let k=0;k<4;k++)SPARKS.emit(cx,gy+.04,cz,-v.vel.x*.3+rnd(-2,2),rnd(.8,3),-v.vel.z*.3+rnd(-2,2),rnd(.15,.45),.07,1.7,1.15,.45,1,-9.8,0,.4,1);if(chance(.14)&&AUD.crash)AUD.crash(1.5+sp*.15,cx,cz,false);}}}
-  if(Math.abs(v.q)<.26&&Math.abs(v.p)<.17&&Math.abs(v.qv)<1.4&&Math.abs(v.pv)<1.4){v.flip=0;v.flipT=0;}
+  // rocked back over by the driver, it comes down onto its wheels rather than rolling on across them
+  if(v.rocked){if(Math.abs(v.q)<.6&&v.q*v.qv<0)v.qv=clamp(v.qv,-1.1,1.1);if(Math.abs(v.p)<.5&&v.p*v.pv<0)v.pv=clamp(v.pv,-1.1,1.1);}
+  if(Math.abs(v.q)<.26&&Math.abs(v.p)<.17&&Math.abs(v.qv)<1.4&&Math.abs(v.pv)<1.4){v.flip=0;v.flipT=0;
+    if(v.rocked){AUD.crash&&AUD.crash(2.2,v.pos.x,v.pos.z,false);if(v===PLAYER.car)CAM.shake=Math.min(1.2,CAM.shake+.3);}v.rocked=false;v.rocks=0;v.rockDir=0;v.rockHold=0;}
   v.flipRest=touching&&Math.abs(v.qv)<.2&&Math.abs(v.pv)<.2&&sp<.4;}
+// rocking an overturned car back onto its wheels, as in GTA: steering (A/D, or the stick side to side) rolls it the way you push,
+// harder toward its wheels than away, so a push the right way rolls it straight back and pushing back and forth builds the swing
+// until it goes over. Every change of direction (and every second of pushing) pushes a little harder, so a few rocks always do
+// it. Stood on its nose or tail, the same pushes tip it back level.
+function rockCar(v,dir,dt){const d=Math.abs(dir)<.3?0:Math.sign(dir);if(d&&d!==v.rockDir){if(v.rockDir)v.rocks=(v.rocks||0)+1;v.rockDir=d;}
+  if(!d||v.air)return;v.rocked=true;v.rockHold=(v.rockHold||0)+dt;const k=(3.2+Math.min(v.rocks||0,8)*.8+Math.min(v.rockHold,4)*.9)*(d*v.q<0?1.6:.8);
+  v.qv+=d*k*dt;if(Math.abs(v.p)>.3)v.pv-=Math.sign(v.p)*k*.7*dt;}
 function vehicleStep(v,dt,inp){if(v.wagon&&(v.wrecked||!v.horse||v.horse.down))inp=null;const md=v.md,g=9.8,s=Math.sin(v.yaw),c=Math.cos(v.yaw);const fx=s,fz=c,sx=c,sz=-s;
-  if(v.flip){v.yaw+=v.r*dt;v.pos.x+=v.vel.x*dt;v.pos.z+=v.vel.z*dt;v.slipLvl=0;v.spinning=false;flipStep(v,dt);collideVehicle(v,dt);return;}
+  if(v.flip){if(inp&&inp.rock!==undefined)rockCar(v,inp.rock,dt);v.yaw+=v.r*dt;v.pos.x+=v.vel.x*dt;v.pos.z+=v.vel.z*dt;v.slipLvl=0;v.spinning=false;flipStep(v,dt);collideVehicle(v,dt);return;}
   let vL=v.vel.x*fx+v.vel.z*fz,vT=v.vel.x*sx+v.vel.z*sz;const wb=md.wb,a=wb/2,b=wb/2,m=v.mass;const dead=v.health<=0||v.inWater>.3;
   const steerIn=inp?inp.steer:0,thr=inp&&!dead?inp.thr:0,brk=inp?inp.brk:(v.mode==='dyn'?.25:0),hand=inp?inp.hand:(v.mode==='dyn'?.6:0);
   const maxSt=v.wagon?.55:lerp(.62,.2,clamp(Math.abs(vL)/28,0,1));v.steer+=clamp(steerIn*maxSt-v.steer,-3*dt,3*dt);const d=v.steer;
@@ -3460,16 +3474,19 @@ function nearestLane(v){let best=null,bd=6;for(const e of EDGES){for(const l of 
 // ================= STREETCARS =================
 const TRAMS=[];
 // ---------- the streetcar: glazed window bays with a lit interior, clerestory roof, vestibules, trucks ----------
-function buildTramModel(){const red=C('#8e1d17'),cream=C('#e6d9ba'),dark=C('#252320'),iron=C('#1f1e1c'),brass=C('#b8923a'),L=13.6,hl=L/2,W=2.56,hw=W/2;const R2=mulberry32(5150);
-  const yBelt=1.42,yTop=2.36,yRoof=2.66,nWin=10,bayL=(L-2.4)/nWin;
+// l=true builds the L's car from it: the elevated's dark green, couplers where the street car has lifeguards, its vestibule
+// doorways left dark for the sliding door leaves (instanced apart, see buildLTrains) and its lamps kept soft
+function buildTramModel(l=false){const red=l?C('#1f3b28'):C('#8e1d17'),cream=C('#e6d9ba'),dark=C('#252320'),iron=C('#1f1e1c'),brass=C('#b8923a'),L=TRAM_L,hl=L/2,W=TRAM_W,hw=W/2;const R2=mulberry32(5150);
+  const yBelt=TRAM_BELT,yTop=TRAM_TOP,yRoof=2.66,nWin=10,bayL=(L-2.4)/nWin,lamp=(h,k)=>l?C(h).multiplyScalar(k):C(h);
   return buildGroup(()=>{
    // underframe, trucks and wheels, lifeguards
    rb('plain',0,.45,0,W-.06,.22,L-.2,.02,dark);for(const z of [-4.2,4.2]){rb('metal',0,.36,z,2.1,.3,2.3,.03,iron);for(const s of [-.72,.72])for(const dz of [-.8,.8]){cyl('metal',s,0,z+dz,.34,.34,.08,14,iron,false,new THREE.Matrix4().makeRotationZ(Math.PI/2).setPosition(s,.34,z+dz));}
     for(const s of [-1.05,1.05])tubeTo('metal',[[s,.3,z-1],[s,.5,z],[s,.3,z+1]],.02,iron,8,4);}
-   for(const zz of [-hl,hl]){const sg=zz>0?1:-1;rb('metal',0,.22,zz+sg*.32,2.2,.14,.52,.02,dark);for(let i=0;i<7;i++)rb('metal',-.9+i*.3,.14,zz+sg*.6,.04,.12,.3,.01,iron);}
+   for(const zz of [-hl,hl]){const sg=zz>0?1:-1;if(l){rb('metal',0,.5,zz+sg*.18,.18,.14,.36,.02,iron);rb('metal',0,.5,zz+sg*.37,.3,.26,.04,.01,dark);continue;}
+    rb('metal',0,.22,zz+sg*.32,2.2,.14,.52,.02,dark);for(let i=0;i<7;i++)rb('metal',-.9+i*.3,.14,zz+sg*.6,.04,.12,.3,.01,iron);}
    // lower body sides, belt rail, letterboard, window posts, glazing and top sashes
-   for(const s of [-1,1]){const x=s*(hw-.02);rb('carpaint',x,(.56+yBelt)/2,0,.05,yBelt-.56,L-1.2,.02,red);rb('carpaint',s*(hw+.004),yBelt,0,.04,.06,L-1.2,.01,cream);
-    rb('carpaint',x,(yTop+yRoof)/2,0,.05,yRoof-yTop,L-1.2,.02,cream);rb('metal',s*(hw+.01),.62,0,.03,.05,L-1.2,.01,brass);
+   for(const s of [-1,1]){const x=s*(hw-.02),bl=l?L-2*(TRAM_DOOR+.28):L-1.2;rb('carpaint',x,(.56+yBelt)/2,0,.05,yBelt-.56,bl,.02,red);rb('carpaint',s*(hw+.004),yBelt,0,.04,.06,bl,.01,cream);
+    rb('carpaint',x,(yTop+yRoof)/2,0,.05,yRoof-yTop,L-1.2,.02,cream);rb('metal',s*(hw+.01),.62,0,.03,.05,bl,.01,brass);
     for(let i=0;i<=nWin;i++){const z=-hl+1.2+i*bayL;rb('carpaint',x,(yBelt+yTop)/2,z,.06,yTop-yBelt,.14,.015,cream);}
     for(let i=0;i<nWin;i++){const z=-hl+1.2+(i+.5)*bayL;box('carglass',s*(hw-.03),yBelt+.04,z,.012,.58,bayL-.2);rb('plain',s*(hw-.02),yBelt+.64,z,.03,.03,bayL-.18,.006,C('#4a3a2a'));box('carglass',s*(hw-.03),yBelt+.68,z,.012,.24,bayL-.2);}}
    // clerestory roof with deck lights, trolley board
@@ -3477,22 +3494,25 @@ function buildTramModel(){const red=C('#8e1d17'),cream=C('#e6d9ba'),dark=C('#252
    rb('plain',0,yRoof+.44,0,1.1,.18,L-3,.03,C('#34332f'));for(const s of [-1,1])for(let i=0;i<14;i++)box('carglass',s*.555,yRoof+.37,-hl+1.7+i*.72,.01,.1,.5);rb('plain',0,yRoof+.56,0,1.2,.04,L-2.8,.02,C('#2c2b27'));rb('wood',0,yRoof+.6,-1.6,.5,.06,3.6,.01,C('#4a3a2a'));
    // vestibules: rounded ends with windows, doors, headlamp, destination sign, fender
    for(const zz of [-hl,hl]){const sg=zz>0?1:-1;const ez=zz-sg*.6;
-    for(const s of [-1,1]){rb('carpaint',s*(hw-.02),(.56+yBelt)/2,ez,.05,yBelt-.56,1.2,.02,red);rb('carpaint',s*(hw-.02),(yTop+yRoof)/2,ez,.05,yRoof-yTop,1.2,.02,cream);rb('carpaint',s*(hw-.02),(yBelt+yTop)/2,zz-sg*.08,.06,yTop-yBelt,.14,.015,cream);}
+    for(const s of [-1,1]){if(!l)rb('carpaint',s*(hw-.02),(.56+yBelt)/2,ez,.05,yBelt-.56,1.2,.02,red);
+     else for(const [z0,z1] of [[zz-sg*1.2,zz-sg*(TRAM_DOOR+.28)],[zz-sg*(TRAM_DOOR-.28),zz]])rb('carpaint',s*(hw-.02),(.56+yBelt)/2,(z0+z1)/2,.05,yBelt-.56,Math.abs(z1-z0),.02,red);
+     rb('carpaint',s*(hw-.02),(yTop+yRoof)/2,ez,.05,yRoof-yTop,1.2,.02,cream);rb('carpaint',s*(hw-.02),(yBelt+yTop)/2,zz-sg*.08,.06,yTop-yBelt,.14,.015,cream);}
     rb('carpaint',0,(.56+yBelt)/2,zz-sg*.03,W-.1,yBelt-.56,.05,.02,red);rb('carpaint',0,(yTop+yRoof)/2,zz-sg*.03,W-.1,yRoof-yTop,.05,.02,cream);
     for(const x of [-.82,0,.82]){box('carglass',x,yBelt+.04,zz-sg*.03,.74,yTop-yBelt-.08,.012);}for(const x of [-.42,.42])rb('carpaint',x,(yBelt+yTop)/2,zz-sg*.04,.1,yTop-yBelt,.06,.01,cream);
-    for(const s of [-1,1]){box('carglass',s*(hw-.03),yBelt+.04,zz-sg*.62,.012,yTop-yBelt-.1,.5);rb('plain',s*(hw-.015),.9,zz-sg*.62,.02,.62,.5,.006,C('#5a1512'));}
-    sph('glow',0,1.14,zz+sg*.03,.14,C('#fff2c8'));rb('chrome',0,1.14,zz+sg*.01,.34,.34,.05,.03,brass);
-    rb('plain',0,yTop+.17,zz-sg*.02,1.1,.2,.05,.01,C('#111'));box('glow',0,yTop+.1,zz+sg*.005,.9,.12,.01,C('#fff0c0'));
+    for(const s of [-1,1]){if(l){rb('plain',s*(hw-.14),(.6+yTop)/2,zz-sg*TRAM_DOOR,.03,yTop-.6,.58,.004,C('#0c0e0c'));continue;}
+     box('carglass',s*(hw-.03),yBelt+.04,zz-sg*.62,.012,yTop-yBelt-.1,.5);rb('plain',s*(hw-.015),.9,zz-sg*.62,.02,.62,.5,.006,C('#5a1512'));}
+    sph('glow',0,1.14,zz+sg*.03,.14,lamp('#fff2c8',.4));rb('chrome',0,1.14,zz+sg*.01,.34,.34,.05,.03,brass);
+    rb('plain',0,yTop+.17,zz-sg*.02,1.1,.2,.05,.01,C('#111'));box('glow',0,yTop+.1,zz+sg*.005,.9,.12,.01,lamp('#fff0c0',.3));
     rb('metal',0,.62,zz+sg*.06,W-.2,.08,.08,.01,brass);}
    // interior: floor, transverse seats, stanchions, ceiling lamps, riders
    rb('wood',0,.58,0,W-.16,.04,L-.3,.01,C('#5a4230'));rb('plain',0,yRoof-.02,0,W-.2,.02,L-1.4,.01,C('#e8dcc0'));
    for(let i=0;i<nWin;i++){const z=-hl+1.2+(i+.5)*bayL;for(const s of [-1,1]){rb('wood',s*.76,.92,z,.86,.1,.46,.03,C('#8a6a3c'));rb('wood',s*.76,1.22,z-.21,.86,.5,.06,.02,C('#7a5a34'));}
-    rodTo('chrome',[.26,.6,z-.3],[.26,yRoof-.05,z-.3],.018,brass,6);sph('glow',0,yRoof-.1,z,.06,C('#fff2c8'));}
+    rodTo('chrome',[.26,.6,z-.3],[.26,yRoof-.05,z-.3],.018,brass,6);sph('glow',0,yRoof-.1,z,.06,lamp('#fff2c8',.6));}
    for(let i=0;i<9;i++){const x=(R2()<.5?-1:1)*(.62+R2()*.25),z=-hl+1.2+(Math.floor(R2()*nWin)+.5)*bayL;const coat=C(['#2b2b30','#4a3a2c','#1f2a3d','#6d2233','#56575a','#3c4a3a'][Math.floor(R2()*6)]);
     rb('plain',x,1.3,z,.44,.62,.3,.08,coat);sph('plain',x,1.8,z,.11,C(['#eac6a9','#d3a482','#9c6b4d'][Math.floor(R2()*3)]),10,8);if(R2()<.7){cyl('plain',x,1.86,z,.15,.15,.03,12,C('#2a2a2c'));cyl('plain',x,1.88,z,.1,.1,.1,12,C('#2a2a2c'));}}
   });}
 
-let TRAM_PROTO=null;
+const TRAM_L=13.6,TRAM_W=2.56,TRAM_BELT=1.42,TRAM_TOP=2.36,TRAM_DOOR=.62;let TRAM_PROTO=null;
 function buildTrams(){TRAM_PROTO=buildTramModel();const lines=[{ns:1,c:110,a0:-790,a1:432},{ns:0,c:-30,a0:-440,a1:298}];
   for(const L of lines)for(const dir of [1,-1])for(let k=0;k<3;k++){const g=TRAM_PROTO.clone();scene.add(g);const pole=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,4.4,4),MATS.metal);g.add(pole);
     const t={root:g,pole,line:L,dir,a:lerp(L.a0,L.a1,(k+.5)/3+(dir>0?0:.15)),aiSpeed:0,stop:0,mode:'tram',hl:6.9,hw:1.3,h:3.6,rad:7.1,pos:new THREE.Vector3(),vel:new THREE.Vector3(),yaw:0,mass:1e9,dead:false,wagon:false,fwd:null};
@@ -3508,43 +3528,37 @@ function updateTrams(dt,px,pz){for(const t of TRAMS){const L=t.line;const off=1.
   if(t.aiSpeed>7&&chance(dt*.8))SPARKS.emit(t.pos.x+Math.sin(t.yaw)*-5.5,5.9,t.pos.z+Math.cos(t.yaw)*-5.5,rnd(-1,1),rnd(-1,.5),rnd(-1,1),.25,.06,.7,.8,1.6,1,-6,0,0,0);}}
 // ================= THE "L" TRAINS =================
 // Four trains of four cars, two on each track (the outer one clockwise, the inner one the other way round), stopping 9 s at every
-// station with the train centred on the platforms; the doors on the platform side slide open while it stands. The cars are
-// instanced: one draw call per material for every car on the Loop, one more for the doors.
-const LTRAINS=[],LCAR={meshes:[],doors:null,n:0},L_CAR_GAP=14.8,L_CARS=4;
+// station with the train centred on the platforms; the door leaves on the platform side slide open while it stands. The cars are
+// the streetcar in the L's green (buildTramModel(true)), their floors level with the platforms, instanced: one draw call per
+// material for every car on the Loop, two more for the door leaves.
+const LTRAINS=[],LCAR={meshes:[],doors:[],n:0},L_CAR_GAP=TRAM_L+.8,L_CARS=4;
 const _lcM=new THREE.Matrix4(),_lcD=new THREE.Matrix4(),_lcN=new THREE.Matrix4(),_lcQ=new THREE.Quaternion(),_lcS=new THREE.Vector3(1,1,1),_lcY=new THREE.Vector3(0,1,0);
-// a car of the 1920s steel fleet: 14.2 m, its floor level with the platforms (1.1 m over the rail), windows down both sides, two
-// side doors each side (dark openings here; the sliding panels are instanced apart), trucks, end windows, marker lamps, a headlamp
-// at each end and an arched roof with ventilators. Local +z runs along the track, +x out of the loop.
-function buildLCarShape(){const g=C('#2f4a36'),dg=C('#1c2c20'),blk=C('#151515'),win=C('#e8d6a0'),R0=L_RAIL;
-  for(const z of [-5.2,5.2]){box('metal',0,R0+.18,z,2.2,.42,2.7,blk);for(const x of [-.74,.74])for(const dz of [-.95,.95]){_m1.makeRotationZ(Math.PI/2).setPosition(x,R0+.38,z+dz);cyl('metal',0,0,0,.38,.38,.12,12,C('#262626'),false,_m1);}}
-  box('carpaint',0,R0+.62,0,2.35,.42,13.8,blk);box('carpaint',0,R0+1.0,0,2.7,1.0,14.2,g);box('carpaint',0,R0+1.98,0,2.72,.06,14.22,dg);
-  box('carpaint',0,R0+2.04,0,2.62,.8,14.1,g);box('carpaint',0,R0+2.84,0,2.7,.4,14.2,g);
-  for(const s of [-1,1]){for(const z of [-3.85,-2.75,-1.65,-.55,.55,1.65,2.75,3.85])box('glow',s*1.315,R0+2.1,z,.03,.66,.9,win);
-    for(const z of [-6.4,6.4])box('glow',s*1.315,R0+2.1,z,.03,.66,.6,win);for(const z of [-5.05,5.05])box('plain',s*1.362,R0+1.1,z,.02,2.0,1.1,blk);}
-  for(const z of [-7.1,7.1]){const f=Math.sign(z);for(const x of [-.72,.72])box('glow',x,R0+2.1,z+f*.012,.72,.66,.03,win);box('plain',0,R0+1.1,z+f*.02,.8,1.9,.04,dg);
-    for(const x of [-1.18,1.18])box('glow',x,R0+2.95,z+f*.014,.13,.13,.03,C('#f0b35a'));
-    _m1.makeRotationX(Math.PI/2).setPosition(0,R0+3.08,z+f*.05);cyl('glow',0,0,0,.13,.13,.1,10,C('#fff4d0'),false,_m1);box('metal',0,R0+.72,z+f*.16,.3,.22,.32,blk);}
-  const rs=new THREE.Shape();rs.moveTo(-1.36,0);rs.quadraticCurveTo(0,.62,1.36,0);rs.lineTo(-1.36,0);addGeo('plain',extr(rs,14.3,0),new THREE.Matrix4().makeTranslation(0,R0+3.24,-7.15),C('#2d2d2a'));
-  for(let z=-5.4;z<=5.41;z+=2.16)box('plain',0,R0+3.8,z,.5,.16,.8,C('#262624'));}
+// a door leaf: green below the belt, glazed above, framed; it hangs just outside the body and slides along it
+function buildLDoorLeaf(){const g=C('#1f3b28'),b=TRAM_BELT,t=TRAM_TOP;rb('carpaint',0,(.6+b)/2,0,.03,b-.6,.5,.008,g);rb('carpaint',0,t-.04,0,.03,.08,.5,.008,g);
+  for(const z of [-.225,.225])rb('carpaint',0,(b+t)/2,z,.03,t-b,.05,.006,g);box('carglass',0,b,0,.01,t-b-.08,.42);}
 // s along a path of the point nearest (x,z)
 function pathS(path,x,z){const P=path.P,n=P.length;let best=0,bd=1e18;for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n],ex=b.x-a.x,ez=b.z-a.z,l2=ex*ex+ez*ez||1e-9;
     const t=clamp(((x-a.x)*ex+(z-a.z)*ez)/l2,0,1),px=a.x+ex*t,pz=a.z+ez*t,d=(px-x)**2+(pz-z)**2;if(d<bd){bd=d;best=a.s+t*Math.sqrt(l2);}}return best%path.len;}
-function buildLTrains(){const car=buildGroup(buildLCarShape),door=buildGroup(()=>box('carpaint',0,L_RAIL+1.1,0,.04,2.0,1.1,C('#27412f'))).children[0];
+function buildLTrains(){const car=buildTramModel(true),door=buildGroup(buildLDoorLeaf);
   const cfg=[[0,1,.05],[0,1,.55],[1,-1,.3],[1,-1,.8]];LCAR.n=cfg.length*L_CARS;
-  for(const m of car.children){const im=new THREE.InstancedMesh(m.geometry,m.material,LCAR.n);im.name='L cars: '+m.name;im.castShadow=m.castShadow;im.receiveShadow=true;im.frustumCulled=false;scene.add(im);LCAR.meshes.push(im);}
-  LCAR.doors=new THREE.InstancedMesh(door.geometry,door.material,LCAR.n*4);LCAR.doors.name='L car doors';LCAR.doors.castShadow=true;LCAR.doors.receiveShadow=true;LCAR.doors.frustumCulled=false;scene.add(LCAR.doors);
+  const inst=(m,n,list,name)=>{const im=new THREE.InstancedMesh(m.geometry,m.material,n);im.name=name+m.name;im.castShadow=m.name!=='carglass'&&!NOSHADOW[m.name];im.receiveShadow=true;im.frustumCulled=false;scene.add(im);list.push(im);};
+  for(const m of car.children)inst(m,LCAR.n,LCAR.meshes,'L cars: ');for(const m of door.children)inst(m,LCAR.n*4,LCAR.doors,'L car doors: ');
   cfg.forEach(([tr,dir,frac],k)=>{const path=L_PATHS[tr],cars=[];for(let i=0;i<L_CARS;i++)cars.push(new THREE.Object3D());
     // a stop puts the middle of the train (car 0 leads) at the station
     const stops=L_STATIONS.map(st=>{const q=stationPos(st);return((pathS(path,q.x,q.z)+dir*L_CAR_GAP*(L_CARS-1)/2)%path.len+path.len)%path.len;});
-    const T={path,cars,dir,track:tr,s:frac*path.len,v:0,dwell:0,stops,last:-1,next:-1,dNext:1e9,door:0,near:1e9,base:k*L_CARS,hurry:false};LTRAINS.push(T);lPoseCars(T);});
+    const T={path,cars,dir,track:tr,s:frac*path.len,v:0,dwell:0,stops,last:-1,next:-1,dNext:1e9,door:0,near:1e9,slot:[],hurry:false};LTRAINS.push(T);lPoseCars(T);});
   lInstances();}
 const _lp={x:0,z:0,dx:0,dz:1},_lq={x:0,z:0,dx:0,dz:1};
-function lPoseCars(T){for(let i=0;i<L_CARS;i++){const sc=T.s-T.dir*i*L_CAR_GAP;samplePath(T.path,sc+5,_lp);samplePath(T.path,sc-5,_lq);const c=T.cars[i];c.position.set((_lp.x+_lq.x)/2,0,(_lp.z+_lq.z)/2);c.rotation.y=Math.atan2(_lp.x-_lq.x,_lp.z-_lq.z);}}
-// every car's matrix, and its doors': the platform side's slid open along the car by T.door (0 shut, 1 open)
-function lInstances(){const D=LCAR.doors;for(const T of LTRAINS){const side=T.track===0?1:-1;
-    for(let i=0;i<L_CARS;i++){const c=T.cars[i],j=T.base+i;_lcQ.setFromAxisAngle(_lcY,c.rotation.y);_lcM.compose(c.position,_lcQ,_lcS);for(const m of LCAR.meshes)m.setMatrixAt(j,_lcM);
-      for(let d=0;d<4;d++){const sx=d<2?1:-1,sz=d%2?1:-1,open=sx===side?T.door:0;_lcD.makeTranslation(sx*1.39,0,sz*(5.05+open*1.12));D.setMatrixAt(j*4+d,_lcN.multiplyMatrices(_lcM,_lcD));}}}
-  for(const m of LCAR.meshes)m.instanceMatrix.needsUpdate=true;D.instanceMatrix.needsUpdate=true;}
+function lPoseCars(T){for(let i=0;i<L_CARS;i++){const sc=T.s-T.dir*i*L_CAR_GAP;samplePath(T.path,sc+4.2,_lp);samplePath(T.path,sc-4.2,_lq);const c=T.cars[i];c.position.set((_lp.x+_lq.x)/2,L_RAIL,(_lp.z+_lq.z)/2);c.rotation.y=Math.atan2(_lp.x-_lq.x,_lp.z-_lq.z);}}
+// every car's matrix, and its door leaves': a doorway at each end on both sides; the platform side's leaves slide back along the
+// car by T.door (0 shut, 1 open). Cars over 420 m from the camera are left out (lost in the haze; the cars are the streetcar's
+// full detail): the rest are packed at the front of the lists (T.slot[i], -1 when left out) and only they are drawn.
+function lInstances(){const cx=camera.position.x,cz=camera.position.z,all=AER.on;let n=0;
+  for(const T of LTRAINS){const side=T.track===0?1:-1;
+    for(let i=0;i<L_CARS;i++){const c=T.cars[i];if(!all&&Math.hypot(c.position.x-cx,c.position.z-cz)>420){T.slot[i]=-1;continue;}const j=T.slot[i]=n++;
+      _lcQ.setFromAxisAngle(_lcY,c.rotation.y);_lcM.compose(c.position,_lcQ,_lcS);for(const m of LCAR.meshes)m.setMatrixAt(j,_lcM);
+      for(let d=0;d<4;d++){const sx=d<2?1:-1,sz=d%2?1:-1,open=sx===side?T.door:0;_lcD.makeTranslation(sx*(TRAM_W/2+.06),0,sz*(TRAM_L/2-TRAM_DOOR-open*.54));_lcN.multiplyMatrices(_lcM,_lcD);for(const m of LCAR.doors)m.setMatrixAt(j*4+d,_lcN);}}}
+  for(const m of LCAR.meshes){m.count=n;m.instanceMatrix.needsUpdate=true;}for(const m of LCAR.doors){m.count=n*4;m.instanceMatrix.needsUpdate=true;}}
 // seconds until train T stands at station i (a rough reckoning: 11 m/s under way, 13 s for each stop between)
 function lEta(T,i){if(T.dwell>0&&T.last===i)return 0;const len=T.path.len,d=((T.stops[i]-T.s)*T.dir%len+len)%len;let k=0;
   for(let j=0;j<T.stops.length;j++){if(j===i)continue;const dj=((T.stops[j]-T.s)*T.dir%len+len)%len;if(dj<d&&!(j===T.last&&(dj<1||dj>len-40)))k++;}return d/11+k*13+Math.max(0,T.dwell);}
@@ -3566,8 +3580,8 @@ function lArrive(T){AUD.bell(T.cars[0].position.x,T.cars[0].position.z,.5);}
 // people waiting on that platform board (those you are not looking at: the rest wait for the next one)
 function lDepart(T){for(const w of L_WAIT)if(w.p&&w.plat.i===T.last&&w.plat.track===T.track&&!inView(w.x,L_PLAT+1,w.z,1.5)){clearPeds([w.p]);w.p=null;w.tried=false;}}
 // a train meets you: on the track, under way, it knocks you down; otherwise (at the platform's edge, or standing) it shoulders you aside
-function lHitPlayer(T){const h=PLAYER.h;if(h.pos.y>L_RAIL+3.9)return;
-  for(const c of T.cars){const dx=h.pos.x-c.position.x,dz=h.pos.z-c.position.z,s=Math.sin(c.rotation.y),co=Math.cos(c.rotation.y),lx=dx*co-dz*s,lz=dx*s+dz*co;if(Math.abs(lx)>1.65||Math.abs(lz)>7.4)continue;
+function lHitPlayer(T){const h=PLAYER.h;if(h.pos.y>L_RAIL+3.3)return;
+  for(const c of T.cars){const dx=h.pos.x-c.position.x,dz=h.pos.z-c.position.z,s=Math.sin(c.rotation.y),co=Math.cos(c.rotation.y),lx=dx*co-dz*s,lz=dx*s+dz*co;if(Math.abs(lx)>1.65||Math.abs(lz)>L_CAR_GAP/2)continue;
     if(T.v>1.2&&h.pos.y<L_PLAT-.5){knockByCar(h,s*T.dir*T.v,co*T.dir*T.v);PLAYER.down=0;AUD.thud(T.v,h.pos.x,h.pos.z);CAM.shake=.8;return;}
     const nl=(lx<0?-1:1)*1.65;h.pos.x=c.position.x+nl*co+lz*s;h.pos.z=c.position.z-nl*s+lz*co;}}
 // ---------- people waiting on the platforms: set out of sight near you (as the bench sitters are); they board the next train ----------
@@ -4120,35 +4134,37 @@ addEventListener('mousemove',showCursor);addEventListener('mousedown',showCursor
 addEventListener('mousemove',e=>{if(document.pointerLockElement===canvasEl||(STATE.started&&!STATE.paused&&STATE.noLock&&(e.buttons&3))){MOUSE_DX+=e.movementX||0;MOUSE_DY+=e.movementY||0;}});
 document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvasEl&&STATE.started&&!STATE.touch&&!STATE.paused&&!STATE.skipPause)setPause(true);STATE.skipPause=false;});
 // Mobile thumb stick (from the ChatGPT build, reworked): it sits wherever your thumb last was, with the minimap underneath.
-// Let go and the knob swings back to the centre, then grows to fill the ring as a BRAKE button: press it to brake, keep
-// the thumb there to stop, drag back or sideways to brake while steering, or push up to drive on. Micro-movements are ignored.
+// In a car it is a BRAKE button the moment you let go (the knob swings back to the centre as it grows to fill the ring, but a
+// thumb coming down again brakes at once, however far the animation has got): keep the thumb there to stop, drag sideways to
+// brake while steering, pull back once stopped to reverse, or push up and the brake lets go at once, the knob shrinks back
+// under your thumb and follows it, driving on.
 function screenSteering(v){const a=Math.abs(v),dead=.07;if(a<=dead)return 0;const t=clamp((a-dead)/(1-dead),0,1);return Math.sign(v)*(t*t*(3-2*t));}
 let touchReady=false;
-const STK={el:null,knob:null,map:null,label:null,aim:null,cx:0,cy:0,R:66,id:null,lid:null,lx:0,ly:0,mode:'rest',kx:0,ky:0,grow:0,sx:0,sy:0,t0:0,upT:0,backT:0};
+const STK={el:null,knob:null,map:null,label:null,aim:null,cx:0,cy:0,R:66,id:null,lid:null,lx:0,ly:0,mode:'rest',kx:0,ky:0,grow:0,sx:0,sy:0,backT:0};
 function stickPlace(x,y){STK.cx=clamp(x,STK.R+6,innerWidth-STK.R-6);STK.cy=clamp(y,STK.R+6,innerHeight-STK.R-6);STK.el.style.left=(STK.cx-STK.R)+'px';STK.el.style.top=(STK.cy-STK.R)+'px';}
 function stickDrive(x,y){let dx=x-STK.cx,dy=y-STK.cy;const l=Math.hypot(dx,dy),m=54;if(l>m){dx*=m/l;dy*=m/l;}STK.kx=dx;STK.ky=dy;const nx=dx/m,ny=dy/m;TOUCH.x=screenSteering(nx);const ay=Math.abs(ny);TOUCH.y=ay<=.07?0:Math.sign(ny)*clamp((ay-.07)/.93,0,1);TOUCH.active=true;
   STK.aim.style.display='block';STK.aim.style.left=x+'px';STK.aim.style.top=y+'px';}
 function stickBrake(x,y){const now=performance.now(),dx=x-STK.sx,dy=y-STK.sy,d=Math.hypot(dx,dy);TOUCH.y=0;
-  if(now-STK.t0<170||d<12){TOUCH.x=0;STK.upT=STK.backT=0;return;}                     // a resting thumb wobbles: ignore it
-  if(dy<-26&&-dy>Math.abs(dx)*.8){if(!STK.upT)STK.upT=now;if(now-STK.upT>110){STK.mode='drive';TOUCH.brake=0;stickDrive(x,y);return;}}else STK.upT=0;   // pushed up: drive on
+  if(dy<-12&&-dy>Math.abs(dx)*.8){STK.mode='drive';TOUCH.brake=0;stickDrive(x,y);return;}   // pushed up: the brake lets go, drive on
+  if(d<8){TOUCH.x=0;STK.backT=0;return;}                                                  // a resting thumb wobbles: ignore it
   TOUCH.x=screenSteering(clamp(dx/54,-1,1));                                             // brake while steering
-  const car=PLAYER.car;if(car&&car.speed()<.4&&dy>42){if(!STK.backT)STK.backT=now;if(now-STK.backT>450){STK.mode='drive';TOUCH.brake=0;stickDrive(x,y);}}else STK.backT=0;}   // stopped and still pulling back: reverse
+  const car=PLAYER.car;if(car&&car.speed()<.4&&dy>42){if(!STK.backT)STK.backT=now;if(now-STK.backT>350){STK.mode='drive';TOUCH.brake=0;stickDrive(x,y);}}else STK.backT=0;}   // stopped and still pulling back: reverse
 function setupTouch(){if(touchReady)return;touchReady=true;STK.el=$('stick');STK.knob=$('knob');STK.map=$('stickMap');STK.label=STK.knob.querySelector('span');STK.aim=$('aimDot');
   stickPlace(STK.R+26,innerHeight-STK.R-30);
   addEventListener('touchmove',e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){if(STK.mode==='brake')stickBrake(t.clientX,t.clientY);else stickDrive(t.clientX,t.clientY);}
     else if(t.identifier===STK.lid){MOUSE_DX+=(t.clientX-STK.lx)*2.2;MOUSE_DY+=(t.clientY-STK.ly)*2.2;STK.lx=t.clientX;STK.ly=t.clientY;}}},{passive:false});
-  const end=e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){STK.id=null;TOUCH.x=TOUCH.y=0;TOUCH.active=false;STK.aim.style.display='none';STK.mode=STK.mode==='brake'&&PLAYER.car?'brakeIdle':'returning';TOUCH.brake=0;}if(t.identifier===STK.lid)STK.lid=null;}};addEventListener('touchend',end);addEventListener('touchcancel',end);
+  const end=e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){STK.id=null;TOUCH.x=TOUCH.y=0;TOUCH.active=false;STK.aim.style.display='none';STK.mode=PLAYER.car?(STK.mode==='brake'?'brakeIdle':'growing'):'returning';TOUCH.brake=0;}if(t.identifier===STK.lid)STK.lid=null;}};addEventListener('touchend',end);addEventListener('touchcancel',end);
   canvasEl.addEventListener('touchstart',e=>{if(!STATE.started||GAR.on)return;for(const t of e.changedTouches){const wantStick=STK.id===null&&(PLAYER.car||t.clientX<innerWidth*.55);
-    if(wantStick){STK.id=t.identifier;stickPlace(t.clientX,t.clientY);STK.sx=t.clientX;STK.sy=t.clientY;STK.t0=performance.now();STK.upT=STK.backT=0;TOUCH.x=TOUCH.y=0;TOUCH.active=true;
-      if(PLAYER.car&&(STK.mode==='brakeIdle'||STK.mode==='growing')){STK.mode='brake';TOUCH.brake=1;STK.kx=STK.ky=0;}else{STK.mode='drive';TOUCH.brake=0;stickDrive(t.clientX,t.clientY);}}
+    if(wantStick){STK.id=t.identifier;stickPlace(t.clientX,t.clientY);STK.sx=t.clientX;STK.sy=t.clientY;STK.backT=0;TOUCH.x=TOUCH.y=0;TOUCH.active=true;
+      if(PLAYER.car&&(STK.mode==='brakeIdle'||STK.mode==='growing'||STK.mode==='returning')){STK.mode='brake';TOUCH.brake=1;STK.kx=STK.ky=0;}else{STK.mode='drive';TOUCH.brake=0;stickDrive(t.clientX,t.clientY);}}
     else if(STK.lid===null){STK.lid=t.identifier;STK.lx=t.clientX;STK.ly=t.clientY;}}e.preventDefault();},{passive:false});
   document.querySelectorAll('#tbtns button').forEach(b=>{const k=b.dataset.k;b.addEventListener('touchstart',e=>{KEYS[k]=true;PRESS[k]=true;e.preventDefault();},{passive:false});b.addEventListener('touchend',()=>{KEYS[k]=false;});});}
 // per frame: return-to-centre, the grow into a brake button (minimap fading out underneath), and back
 function updateStickUI(dt){if(!STK.el)return;const show=STATE.started&&!GAR.on&&!STATE.paused;STK.el.style.display=show?'block':'none';if(!show)return;const inCar=!!PLAYER.car;
   if(STK.mode==='returning'){const k=Math.exp(-dt*13);STK.kx*=k;STK.ky*=k;if(Math.hypot(STK.kx,STK.ky)<.8){STK.kx=STK.ky=0;STK.mode=inCar?'growing':'rest';}}
-  if(STK.mode==='growing'){STK.grow=Math.min(1,STK.grow+dt/.24);if(STK.grow>=1)STK.mode='brakeIdle';}
-  else if(STK.mode==='brakeIdle'||STK.mode==='brake'){STK.grow=Math.min(1,STK.grow+dt/.12);if(!inCar){STK.mode='rest';TOUCH.brake=0;}}
-  else STK.grow=Math.max(0,STK.grow-dt/.16);
+  if(STK.mode==='growing'){STK.grow=Math.min(1,STK.grow+dt/.16);if(STK.grow>=1)STK.mode='brakeIdle';if(!inCar)STK.mode='returning';}
+  else if(STK.mode==='brakeIdle'||STK.mode==='brake'){STK.grow=Math.min(1,STK.grow+dt/.1);if(!inCar){STK.mode='rest';TOUCH.brake=0;}}
+  else STK.grow=Math.max(0,STK.grow-dt/.12);
   const g=STK.grow*STK.grow*(3-2*STK.grow),full=STK.R*2-6,size=48+(full-48)*g,ox=STK.kx*(1-g),oy=STK.ky*(1-g);
   STK.knob.style.width=STK.knob.style.height=size+'px';STK.knob.style.left=(STK.R-size/2+ox)+'px';STK.knob.style.top=(STK.R-size/2+oy)+'px';
   STK.label.style.opacity=String(clamp((g-.55)/.45,0,1));STK.map.style.opacity=String(1-g*.97);STK.knob.classList.toggle('pressed',STK.mode==='brake');}
@@ -4166,8 +4182,6 @@ function enterVehicle(v){const P=PLAYER,h=P.h;if(v.driver&&v.driver!==h){const d
 function exitVehicle(){const P=PLAYER,v=P.car;if(!v)return;detachFromVehicle(P.h,v);v.driver=null;v.mode=v.speed()>.5?'dyn':'parked';v.dynT=0;P.car=null;P.vel.copy(v.vel).multiplyScalar(.3);AUD.door();
   if(isWater(P.h.pos.x,P.h.pos.z)&&v.inWater>.2){P.h.pos.set(v.pos.x,waterHeight(v.pos.x,v.pos.z)-1.2,v.pos.z);}}
 function vLp(v){return v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);}
-// set an overturned car back on its wheels (R key or the on-screen button)
-function rightCar(){const v=PLAYER.car;if(!v||v.speed()>2.5)return;v.p=v.q=v.pv=v.qv=0;v.flip=0;v.flipT=0;v.flipRest=false;v.pos.y=groundAt(v.pos.x,v.pos.z)+.3;v.vel.set(0,0,0);v.r=0;$('rightBtn').style.display='none';}
 function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE.on)lRideUpdate(dt);return;}
   // E on an L platform with a train standing at it: board
   if(PRESS.KeyE&&!P.car&&!P.mount&&!h.ragdoll&&!P.swim){const b=lBoardable(h.pos);if(b&&b.T){delete PRESS.KeyE;lBoard(b.T);return;}}
@@ -4175,11 +4189,11 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
   if(PRESS.KeyU&&!P.car&&!h.ragdoll&&!P.swim){const hv=nearestHitched(h.pos,2.6);if(hv)untieHorse(hv);}
   const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
   if(PRESS.KeyE){if(P.car){if(P.car.speed()<6)exitVehicle();}else if(!h.ragdoll&&!P.swim){const v=nearestVehicle(h.pos,3.2);if(v)enterVehicle(v);}}
-  if(P.car){const v=P.car;const inp={steer:clamp(-ix,-1,1),thr:clamp(iz,-1,1),brk:0,hand:KEYS.Space?1:0,run:KEYS.ShiftLeft||KEYS.ShiftRight};if(v.wagon&&inp.thr<0&&v.speed()<.3)inp.thr=-.5;if(TOUCH.brake){inp.thr=0;inp.brk=1;}P.brake=inp.brk>0||(iz<0&&vLp(v)>1);if(GAME.freeze){inp.thr=0;inp.brk=1;inp.hand=1;}
+  if(P.car){const v=P.car;const inp={steer:clamp(-ix,-1,1),thr:clamp(iz,-1,1),brk:0,hand:KEYS.Space?1:0,run:KEYS.ShiftLeft||KEYS.ShiftRight,rock:clamp(ix,-1,1)};if(v.wagon&&inp.thr<0&&v.speed()<.3)inp.thr=-.5;if(TOUCH.brake){inp.thr=0;inp.brk=1;}P.brake=inp.brk>0||(iz<0&&vLp(v)>1);if(GAME.freeze){inp.thr=0;inp.brk=1;inp.hand=1;}
    const vL=v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);if(!v.wagon&&iz<0&&vL>1)inp.brk=1;
-   v.punch=v.wagon?1:2.3;const ns=Math.ceil(dt/.0085),sdt=dt/ns,din=v.health>0||v.wagon?inp:{steer:inp.steer,thr:0,brk:.3,hand:0};for(let i=0;i<ns;i++)vehicleStep(v,sdt,din);P.thr=din.thr;h.steer=v.steer*2;
+   v.punch=v.wagon?1:2.3;const ns=Math.ceil(dt/.0085),sdt=dt/ns,din=v.health>0||v.wagon?inp:{steer:inp.steer,thr:0,brk:.3,hand:0,rock:inp.rock};for(let i=0;i<ns;i++)vehicleStep(v,sdt,din);P.thr=din.thr;h.steer=v.steer*2;
    if(PRESS.KeyQ){if(v.wagon){AUD.whip(v.pos.x,v.pos.z);if(v.horse)v.horse.rear=v.speed()<1?1.6:0;}else AUD.horn(v.pos.x,v.pos.z,1,v.kind);panicAround(v.pos.x+Math.sin(v.yaw)*8,v.pos.z+Math.cos(v.yaw)*8,7);}
-   if(PRESS.KeyL)v.lights=!v.lights;if(PRESS.KeyR)rightCar();{const need=v.flip&&v.flipRest&&v.flipT>1.2;const rb=$('rightBtn');if(need!==(rb.style.display==='block')){rb.style.display=need?'block':'none';if(need&&!STATE.touch)showToast('Overturned! Press R to right the car');}}
+   if(PRESS.KeyL)v.lights=!v.lights;
    if(v.inWater>.85&&v.pos.y<WATER_Y-1.2){exitVehicle();P.swim=true;}return;}
   if(h.ragdoll){P.down+=dt;if(h.ragdoll.rest&&P.down>2.5){h.ragdoll.getUp();P.down=0;P.vel.set(0,0,0);}return;}
   // ---- on foot ----
@@ -4437,9 +4451,21 @@ function updateCamera(dt,cam){const P=PLAYER,h=P.h;const md=INVERT?-1:1;CAM.idle
    else{if(h.ragdoll){target=_ct.set(h.ragdoll.p[0],h.ragdoll.p[1]+.6,h.ragdoll.p[2]);}else{if(h.speed>.5&&CAM.idle>1.2)follow(h.yaw);target=_ct.set(h.pos.x,h.pos.y+(P.swim?.3:1.55),h.pos.z);}dist=4.1*zoom;k=Math.min(1,dt*14);}}
   const cp=Math.cos(CAM.pitch),dir=_v1.set(Math.sin(CAM.yaw)*cp,Math.sin(CAM.pitch),Math.cos(CAM.yaw)*cp);const side=P.car||P.mount?0:.45;const tgt=_v2.copy(target).addScaledVector(_v3.set(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw)),-side);
   let d=rayCols(tgt,dir,dist+.3)-.3;d=Math.max(.6,Math.min(dist,d));_cp.copy(tgt).addScaledVector(dir,d);const gy=groundAt(_cp.x,_cp.z,_cp.y);if(_cp.y<gy+.3&&!isWater(_cp.x,_cp.z))_cp.y=gy+.3;if(!P.car&&!P.mount){const rf=lRoofOver(h.pos.x,h.pos.z,h.pos.y);if(rf!==null&&_cp.y>rf-.3)_cp.y=Math.max(gy+.3,rf-.3);}if(isWater(_cp.x,_cp.z)&&_cp.y<WATER_Y+.4)_cp.y=WATER_Y+.4;
+  const sw=!P.car&&!P.mount&&!h.ragdoll?stairCam(dt,h):0;if(sw>0){const e=sw*sw*(3-2*sw);_cp.lerp(STAIRCAM.cp,e);tgt.lerp(STAIRCAM.look,e);}
   if(CAM.lastCar!==P.car){CAM.pos.copy(_cp);CAM.lastCar=P.car;}CAM.pos.lerp(_cp,k);CAM.look.lerp(tgt,Math.min(1,dt*16));
   cam.position.copy(CAM.pos);if(CAM.shake>0){CAM.shake=Math.max(0,CAM.shake-dt*2);cam.position.x+=(rand()-.5)*CAM.shake*.3;cam.position.y+=(rand()-.5)*CAM.shake*.3;}cam.lookAt(CAM.look);
   if(P.car){const sp=P.car.speed(),wide=clamp((cam.aspect-1)/.7,0,1);cam.fov+=(lerp(62,58,wide)+Math.min(lerp(14,7,wide),sp*.3)-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}else if(Math.abs(cam.fov-62)>.1){cam.fov+=(62-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}}
+// On an L stair the camera drops below you and looks up the flight at you, the canopy over you and the platform ahead; it eases in
+// once you are on the steps and back out on the landing (or the pavement). The view turns to look up the stair, so the stick's up
+// (W) climbs. Returns the camera's weight (0 off a stair); STAIRCAM.cp and .look are where it stands and what it looks at.
+const STAIRCAM={on:false,p:null,w:0,cp:new THREE.Vector3(),look:new THREE.Vector3(),o:{p:null,u:0}};
+function stairCam(dt,h){const S=STAIRCAM,o=lStairAt(h.pos.x,h.pos.z,h.pos.y,S.o);
+  S.on=!!o&&(S.on&&o.p===S.p?o.u>-.8&&o.u<LS.run+.9:o.u>.25&&o.u<LS.run-.4);if(S.on)S.p=o.p;
+  S.w=clamp(S.w+(S.on?dt:-dt)*1.7,0,1);if(!S.w||!S.p)return 0;
+  const p=S.p,u=(lLocal(p,h.pos.x,h.pos.z,_lsl).a-p.aBot)*-p.down,ux=-p.down*p.ax,uz=-p.down*p.az,uc=u-3.4;
+  lWorld(p,lStairA(p,uc),(LP.s0+LP.s1)/2,_lsw);S.cp.set(_lsw.x,lStairY(p,uc)+.9,_lsw.z);S.look.set(h.pos.x+ux*.8,h.pos.y+1.25,h.pos.z+uz*.8);
+  const yaw=Math.atan2(-ux,-uz);CAM.yaw+=angDiff(CAM.yaw,yaw)*(1-Math.exp(-dt*5))*S.w;CAM.pitch+=(.12-CAM.pitch)*Math.min(1,dt*3)*S.w;
+  return S.w;}
 // ---------- a free camera (edCamOn / edCamOff) for tools: placing the view exactly, lining it up with an old photograph ----------
 // drag to look, WASD / the stick to move, E and Q (or the ▲▼ pad) to climb and sink, Shift to hurry; the player waits where they are
 const EDCAM={on:false,pos:new THREE.Vector3(),yaw:0,pitch:0,fov:62};
@@ -4646,7 +4672,7 @@ function updateHUD(dt,fps){toastT-=dt;if(toastT<0)$('toast').style.opacity=Math.
 function wireMenu(){$('resume').onclick=()=>setPause(false);$('menuBtn').onclick=e=>{e.stopPropagation();if(STATE.started&&!GAR.on)setPause(!STATE.paused);};
   $('mAerial').onclick=()=>{setPause(false);toggleAerial();};$('mMap').onclick=()=>showMap();$('mapClose').onclick=()=>{$('mapView').style.display='none';};$('mSettingsBtn').onclick=()=>menuPage('settings');$('mDevBtn').onclick=()=>{menuPage('dev');buildDev();};$('mDevBack').onclick=()=>menuPage('main');$('mBack').onclick=()=>menuPage('main');
   $('fpsBtn').onclick=()=>{STATE.showFps=!STATE.showFps;$('fps').style.display=STATE.showFps?'block':'none';$('fpsBtn').textContent='Show FPS: '+(STATE.showFps?'On':'Off');};
-  $('rightBtn').onclick=()=>{rightCar();};$('menuBtn').addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});$('qBtn').onclick=()=>{STATE.userQ=true;const q=['high','medium','low'];quality=q[(q.indexOf(quality)+1)%3];$('qBtn').textContent='Quality: '+quality[0].toUpperCase()+quality.slice(1);applyQuality();};
+  $('menuBtn').addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});$('qBtn').onclick=()=>{STATE.userQ=true;const q=['high','medium','low'];quality=q[(q.indexOf(quality)+1)%3];$('qBtn').textContent='Quality: '+quality[0].toUpperCase()+quality.slice(1);applyQuality();};
   $('sndBtn').onclick=()=>{const on=AUD.toggle();$('sndBtn').textContent='Sound: '+(on?'On':'Off');};$('invBtn').onclick=()=>{INVERT=!INVERT;$('invBtn').textContent='Invert look: '+(INVERT?'On':'Off');};
   addEventListener('keydown',e=>{if(!STATE.started||GAR.on)return;if(e.code==='Escape'&&$('mapView').style.display==='block'){e.preventDefault();$('mapView').style.display='none';return;}if(e.code==='KeyH'||e.code==='Escape'){e.preventDefault();setPause(!STATE.paused);}else if(e.code==='KeyT'){SKY.t=(SKY.t+1)%24;envTimer=0;showToast(((Math.floor(SKY.t)+11)%12+1)+' o\'clock');}});}
 function applyQuality(){const Q=QUAL[quality];renderer.setPixelRatio(Math.min(devicePixelRatio||1,Q.pr));sun.shadow.mapSize.set(Q.shadow,Q.shadow);if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null;}onResize();}
@@ -5001,7 +5027,7 @@ function garageOwnMaterials(root){const map=new Map();
 // (garageLight is gone: every car in the showroom takes the room's light as it is, as in the ChatGPT build)
 // fade the showroom up from black: the cover lifts while the spotlight, fill and rim lights come up together
 function revealGarage(ms=1700){return new Promise(res=>{GAR.fade={t0:performance.now(),ms,done:res};const b=$('boot');b.classList.add('gone');setTimeout(()=>{b.style.display='none';},ms+300);});}
-function showGarage(){lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';$('rightBtn').style.display='none';
+function showGarage(){lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';
   STATE.skipPause=true;if(document.pointerLockElement&&document.exitPointerLock)document.exitPointerLock();$('garageUI').style.display='block';chooseSkin(GAR.sel);
   for(let i=0;i<GAR.cars.length;i++)if(GAR.cars[i])GAR.cars[i].root.position.x=(i-GAR.sel)*3.35;GAR.cam.aspect=innerWidth/innerHeight;GAR.cam.updateProjectionMatrix();}
 function garageFrame(dt){for(let i=0;i<GAR.cars.length;i++){const c=GAR.cars[i];if(!c)continue;c.root.position.x=lerp(c.root.position.x,(i-GAR.sel)*3.35+GAR.offset,Math.min(1,dt*7));}// (lit only by the room, as in the ChatGPT build)
