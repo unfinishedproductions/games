@@ -114,7 +114,31 @@ body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 #devPanel .asset .at{flex:1;min-width:0}#devPanel .asset b{display:block;font:400 .95rem Georgia,serif;color:#f1e7cf}#devPanel .asset small{display:block;color:#a8997a;font-size:.7rem;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #devPanel .asset .spawn{visibility:hidden;font:.8rem Limelight,Georgia,serif;padding:.4rem .9rem;background:#e9d9ab;color:#1b1712;border-color:#e9d9ab}
 #devPanel .asset:hover .spawn,#devPanel .asset:focus-within .spawn,body.touch #devPanel .asset .spawn{visibility:visible}
-@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}}
+/* riding the L: the garage's little Loop at the foot of the screen (the stations are buttons), and the fade for boarding and jumps */
+#lride{position:absolute;left:50%;bottom:calc(10px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(560px,94vw);z-index:24;display:none;text-align:center;padding:4px 8px 10px;border-radius:16px;background:radial-gradient(ellipse at 50% 60%,rgba(12,10,7,.62),rgba(12,10,7,0) 72%)}
+#lride.on{display:block}
+#lroute{display:block;width:100%;height:auto;overflow:visible}
+#lroute .track{fill:none;stroke:#4a3f2e;stroke-width:6}
+#lroute .fill{fill:none;stroke:var(--brass);stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+#lroute .lst{cursor:pointer;outline:none}
+#lroute .lst .hit{fill:transparent}
+#lroute .lst .dot{fill:#2a241b;stroke:#4a3f2e;stroke-width:2;transition:fill .3s,stroke .3s;transform-box:fill-box;transform-origin:center}
+#lroute .lst.on .dot{fill:var(--enamel);stroke:var(--brass)}
+#lroute .lst.here .dot{fill:var(--brass);stroke:var(--enamel);animation:lrPulse 1.4s ease-in-out infinite}
+#lroute .lst:hover .dot,#lroute .lst:focus-visible .dot{stroke:#f4ecd6;stroke-width:3}
+#lroute .lst text{font-family:"Special Elite","Courier New",monospace;font-size:12px;fill:#d6c396;paint-order:stroke;stroke:#15110c;stroke-width:3px}
+#lroute .lst.here text,#lroute .lst:hover text,#lroute .lst:focus-visible text{fill:#f4ecd6}
+#lroute .train{fill:#f4ecd6;stroke:#1b1712;stroke-width:3}
+#lride .lrStatus{font:400 1.08rem Limelight,Georgia,serif;letter-spacing:.06em;color:#f4ecd6;text-shadow:0 2px 6px #000;min-height:1.3em}
+#lride .lrHint{font-size:.72rem;color:#d6c396;letter-spacing:.04em;text-shadow:0 1px 4px #000;margin-top:2px}
+#lride .lrHint kbd{font-family:Limelight,Georgia,serif;color:var(--coal);background:var(--enamel);padding:0 .3rem;border-radius:2px}
+#lride .lrOff{display:none;margin:6px auto 0;font:.9rem Limelight,Georgia,serif;letter-spacing:.06em;padding:.55rem 1.2rem;background:rgba(27,23,18,.9);color:#f1e7cf;border:1px solid #c9a14a;border-radius:20px;cursor:pointer;touch-action:manipulation}
+#lride.stop .lrOff{display:inline-block}
+#lride .lrOff:hover,#lride .lrOff:focus-visible{border-color:#e0bd66;outline:none}
+@keyframes lrPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.45)}}
+#lfade{position:fixed;inset:0;z-index:70;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease}
+body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!important}
+@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}}
 </style>
 </head>
 <body>
@@ -174,6 +198,7 @@ body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
     <tr><td>L</td><td>Headlamps</td></tr>
     <tr><td>C</td><td>Camera distance</td></tr>
     <tr><td>M</td><td>Aerial view</td></tr>
+    <tr><td>On the L</td><td>Climb a station's stairs; E boards a train standing at the platform and gets off at a stop; C changes the view; pick a station on the little Loop (or press 1-6) to ride straight there</td></tr>
     <tr><td>T</td><td>Skip ahead one hour</td></tr>
     <tr><td>H / Esc</td><td>This menu</td></tr>
     <tr><td>Thumb stick</td><td>Let go and it re-centres into a BRAKE button: press it to brake, push up to drive on</td></tr>
@@ -968,36 +993,161 @@ function makePath(pts,closed){const P=pts.map(p=>({x:p[0],z:p[1],s:0}));let s=0;
 function samplePath(path,s,out){const P=path.P;if(path.closed){s=((s%path.len)+path.len)%path.len;}else s=clamp(s,0,path.len);
   let lo=0,hi=P.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(P[m].s<=s)lo=m;else hi=m-1;}const a=P[lo],b=lo+1<P.length?P[lo+1]:P[0];const bs=lo+1<P.length?b.s:path.len;const t=clamp((s-a.s)/Math.max(1e-6,bs-a.s),0,1);
   out.x=a.x+(b.x-a.x)*t;out.z=a.z+(b.z-a.z)*t;out.dx=b.x-a.x;out.dz=b.z-a.z;const l=Math.hypot(out.dx,out.dz)||1;out.dx/=l;out.dz/=l;return out;}
+// Walking the L. The whole track can be walked (on the tops of its ties). Every station has two side platforms level with the car
+// floors, each with a covered stair from the pavement at one end: 49 risers of 17 cm with a half landing, running along the kerb
+// and reaching the platform over a landing. lTerrain gives the walking surfaces (groundAt asks it first, with the walker's height,
+// so the street under the L stays the street); stairs, landings and platforms have their railings as colliders.
+const L_TIE=L_DECK+.2,L_RAIL=L_DECK+.35,L_PLAT=L_RAIL+1.1;
+// the loop's centreline as a rounded rectangle (centre, half sizes; corner radius L_R)
+const L_BOX={cx:-60,cz:20,hx:270,hz:350};
+// a platform, across the track (metres out from the centreline): from the track's edge to its railing; the landing reaches on to
+// the stair's outer side. Along the street: 30 m either way from the station's centre, the landing 2.4 m on past its stair end.
+const LP={half:30,l0:3.35,l1:6.55,land:2.4,s0:7.4,s1:9.2};
+// the stair: 49 risers from the pavement to the platform, 28 cm treads, the 24th tread a half landing
+const LS={n:49,tread:.28,mid:24,midLen:1.4};LS.rise=(L_PLAT-CURB)/LS.n;LS.run=(LS.n-2)*LS.tread+LS.midLen;
+// the platforms (two per station) and the footprints the kerb furniture keeps out of
+const L_PLATS=[],L_KEEP=[];
+// signed distance from the loop's centreline, + outside the loop
+function lLat(x,z){const qx=Math.abs(x-L_BOX.cx)-(L_BOX.hx-L_R),qz=Math.abs(z-L_BOX.cz)-(L_BOX.hz-L_R);return Math.hypot(Math.max(qx,0),Math.max(qz,0))+Math.min(Math.max(qx,qz),0)-L_R;}
+// a platform's frame: the station's centre on the centreline, the unit along the street (ax,az) and the one across toward this
+// platform (nx,nz); a = metres along, l = metres across
+function lLocal(p,x,z,o){const dx=x-p.x,dz=z-p.z;o.a=dx*p.ax+dz*p.az;o.l=dx*p.nx+dz*p.nz;return o;}
+function lWorld(p,a,l,o){o.x=p.x+a*p.ax+l*p.nx;o.z=p.z+a*p.az+l*p.nz;return o;}
+const _lsl={a:0,l:0},_lsw={x:0,z:0};
+// the stair's walking surface a metres along: a ramp through the middle of every tread (flat on the half landing), so walking up
+// and down is smooth; null off the stair's run
+function lStairH(p,a){const u=(a-p.aBot)*-p.down;if(u<0||u>LS.run)return null;const t0=(LS.mid-1)*LS.tread,t1=t0+LS.midLen;
+  return CURB+LS.rise*(u<t0?.5+u/LS.tread:u<t1?LS.mid:LS.mid+.5+(u-t1)/LS.tread);}
+// what a walker at height y stands on at (x,z) up on the L, or null (then the street's ground applies). Stairs catch a walker
+// within 1.2 m below their surface (stepping on at the bottom); the rest only one already up there (above 5.6 m).
+function lTerrain(x,z,y){
+  for(const p of L_PLATS){if(x<p.sb[0]||x>p.sb[2]||z<p.sb[1]||z>p.sb[3])continue;lLocal(p,x,z,_lsl);const h=lStairH(p,_lsl.a);if(h!==null&&y>h-1.2)return h;}
+  if(y<L_DECK-1.6)return null;const pp=lPlatAt(x,z);if(pp)return L_PLAT;
+  return Math.abs(lLat(x,z))<4.65?L_TIE:null;}
+// the platform (or its stair-end landing) over (x,z), or null
+function lPlatAt(x,z){for(const p of L_PLATS){lLocal(p,x,z,_lsl);const a=_lsl.a,l=_lsl.l;if(l<LP.l0||l>LP.s1)continue;
+    if(Math.abs(a)<=LP.half&&l<=LP.l1)return p;const ea=a*p.e;if(ea>=LP.half&&ea<=LP.half+LP.land)return p;}return null;}
+// the underside of the canopy over a walker at (x,y,z) on a platform, its landing or a stair (null in the open): the third-person
+// camera stays under it, so a roof never hides you
+function lRoofOver(x,z,y){
+  for(const p of L_PLATS){if(x<p.sb[0]||x>p.sb[2]||z<p.sb[1]||z>p.sb[3])continue;lLocal(p,x,z,_lsl);const h=lStairH(p,_lsl.a);if(h!==null&&y>h-.3)return h+2.5;}
+  return y>L_PLAT-.3&&lPlatAt(x,z)?L_PLAT+3.1:null;}
+// kerb furniture keeps m metres clear of the stairs and landing posts
+function lKeep(x,z,m){for(const r of L_KEEP)if(x>r[0]-m&&x<r[2]+m&&z>r[1]-m&&z<r[3]+m)return true;return false;}
+// building on a platform's frame: a box (centre along, centre across, bottom; sizes along, across, up), a collider, a beam between
+// two points, a board tilted about the street's axis, a board laid along the stair's slope
+function lRect(p,a0,a1,l0,l1){lWorld(p,a0,l0,_lsw);const x0=_lsw.x,z0=_lsw.z;lWorld(p,a1,l1,_lsw);return[Math.min(x0,_lsw.x),Math.min(z0,_lsw.z),Math.max(x0,_lsw.x),Math.max(z0,_lsw.z)];}
+function lBox(p,mk,a,l,y,sa,sl,h,col,ts=1){lWorld(p,a,l,_lsw);const ax=Math.abs(p.ax)>.5;box(mk,_lsw.x,y,_lsw.z,ax?sa:sl,h,ax?sl:sa,col,0,ts);}
+function lCol(p,a0,a1,l0,l1,y0,y1,tag='stair'){const r=lRect(p,a0,a1,l0,l1);return boxCol(r[0],r[1],r[2],r[3],y1,y0,tag);}
+const _lba=new THREE.Vector3(),_lbb=new THREE.Vector3(),_lbc=new THREE.Vector3();
+function lBeam(p,mk,a0,l0,y0,a1,l1,y1,w,t,col){lWorld(p,a0,l0,_lsw);const x0=_lsw.x,z0=_lsw.z;lWorld(p,a1,l1,_lsw);
+  const z=_lba.set(_lsw.x-x0,y1-y0,_lsw.z-z0),len=z.length();z.multiplyScalar(1/len);const x=Math.abs(z.y)<.99?_lbb.set(0,1,0).cross(z).normalize():_lbb.set(p.ax,0,p.az);const y=_lbc.crossVectors(z,x);
+  _m1.makeBasis(x,y,z).setPosition((x0+_lsw.x)/2,(y0+y1)/2,(z0+_lsw.z)/2);boxM(mk,_m1,w,t,len,col);}
+function lTilt(p,mk,a,l,y,sa,sw,t,tilt,col){const c=Math.cos(tilt),s=Math.sin(tilt),x=_lbb.set(p.nx*c,s,p.nz*c),z=_lba.set(p.ax,0,p.az),yv=_lbc.crossVectors(z,x);
+  lWorld(p,a,l,_lsw);_m1.makeBasis(x,yv,z).setPosition(_lsw.x,y,_lsw.z);boxM(mk,_m1,sw,t,sa,col);}
+function lSlope(p,mk,a,l,y,len,w,t,col){const up=-p.down,g=LS.rise/LS.tread,c=1/Math.hypot(1,g),z=_lba.set(p.ax*up*c,g*c,p.az*up*c),x=_lbb.set(p.nx,0,p.nz),yv=_lbc.crossVectors(z,x);
+  lWorld(p,a,l,_lsw);_m1.makeBasis(x,yv,z).setPosition(_lsw.x,y,_lsw.z);boxM(mk,_m1,w,t,len,col);}
+// a stair's a (along the street) for u metres up its run from the bottom, and its surface there
+const lStairA=(p,u)=>p.aBot-p.down*u,lStairY=(p,u)=>lStairH(p,lStairA(p,clamp(u,0,LS.run)));
 function buildL(){srcMark('L track & deck');
-  const center=loopCenterline(0);L_PATHS=[loopCenterline(1.9),loopCenterline(-1.9)];const P=center.P,n=P.length;const iron=C('#34402f'),wood=C('#4a3b2c');
-  for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n];const dx=b.x-a.x,dz=b.z-a.z,L=Math.hypot(dx,dz);if(L<.01)continue;const ang=Math.atan2(dx,dz),mx=(a.x+b.x)/2,mz=(a.z+b.z)/2,nx=dz/L,nz=-dx/L;
+  const center=loopCenterline(0);L_PATHS=[loopCenterline(1.9),loopCenterline(-1.9)];const P=center.P,n=P.length;const iron=C('#34402f'),wood=C('#4a3b2c'),tie=C('#3d3024'),rail=C('#5a5a58');
+  let tieAt=0,stiffAt=0,insAt=0;
+  for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n];const dx=b.x-a.x,dz=b.z-a.z,L=Math.hypot(dx,dz);if(L<.01)continue;const ang=Math.atan2(dx,dz),mx=(a.x+b.x)/2,mz=(a.z+b.z)/2,nx=dz/L,nz=-dx/L,ux=dx/L,uz=dz/L;
+    // plate girders under both tracks; stiffeners down the outer faces of the outer ones
     for(const o of [-2.9,-.9,.9,2.9])box('iron',mx+nx*o,L_DECK-1.25,mz+nz*o,.5,1.25,L+.05,iron,ang,2);
-    for(const o of [-1.9,1.9]){box('wood',mx+nx*o,L_DECK,mz+nz*o,2.5,.2,L+.05,wood,ang,2);for(const r of [-.72,.72])box('metal',mx+nx*(o+r),L_DECK+.2,mz+nz*(o+r),.08,.15,L+.05,C('#5a5a58'),ang);}
-    box('wood',mx+nx*4.2,L_DECK,mz+nz*4.2,.9,.1,L,wood,ang);box('wood',mx+nx*-4.2,L_DECK,mz+nz*-4.2,.9,.1,L,wood,ang);}
+    for(;stiffAt<L;stiffAt+=3)for(const o of [-3.18,3.18])box('iron',a.x+ux*stiffAt+nx*o,L_DECK-1.2,a.z+uz*stiffAt+nz*o,.07,1.12,.16,iron,ang,1,o>0?49:50);
+    stiffAt-=L;
+    // open-deck ties on the girders (the street shows between them), the running rails, a third rail on insulators between the tracks
+    for(;tieAt<L;tieAt+=.75)for(const o of [-1.9,1.9])box('wood',a.x+ux*tieAt+nx*o,L_DECK,a.z+uz*tieAt+nz*o,2.7,.2,.22,tie,ang,1,60);
+    tieAt-=L;
+    for(const o of [-1.9,1.9])for(const r of [-.72,.72])box('metal',mx+nx*(o+r),L_DECK+.2,mz+nz*(o+r),.08,.15,L+.05,rail,ang);
+    for(const o of [-.6,.6])box('metal',mx+nx*o,L_DECK+.3,mz+nz*o,.09,.09,L+.05,C('#4d4b47'),ang);
+    for(;insAt<L;insAt+=6)for(const o of [-.6,.6])box('plain',a.x+ux*insAt+nx*o,L_DECK+.2,a.z+uz*insAt+nz*o,.14,.1,.14,C('#6d5f4c'),ang,1,55);
+    insAt-=L;
+    // the walkways along both sides, level with the tops of the ties
+    box('wood',mx+nx*4.2,L_DECK,mz+nz*4.2,.9,.2,L,wood,ang);box('wood',mx+nx*-4.2,L_DECK,mz+nz*-4.2,.9,.2,L,wood,ang);}
   // bents (columns + cross girders) every ~15m
   srcMark('L columns & girders');
   let acc=0;for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n];const L=Math.hypot(b.x-a.x,b.z-a.z);acc+=L;if(acc<15)continue;acc=0;const dx=(b.x-a.x)/L,dz=(b.z-a.z)/L,nx=dz,nz=-dx,ang=Math.atan2(dx,dz);
-    const w=6.6;for(const sgn of [-1,1]){const cx=a.x+nx*w*sgn,cz=a.z+nz*w*sgn;if(isWater(cx,cz))continue;box('iron',cx,0,cz,.9,.35,.9,iron);box('iron',cx,0,cz,.5,L_DECK-1.2,.5,iron,ang,2);circCol(cx,cz,.45,8,'lcol');
+    const w=6.6;for(const sgn of [-1,1]){const cx=a.x+nx*w*sgn,cz=a.z+nz*w*sgn;if(isWater(cx,cz))continue;box('iron',cx,0,cz,.9,.35,.9,iron);box('iron',cx,0,cz,.5,L_DECK-1.2,.5,iron,ang,2);box('iron',cx,L_DECK-1.45,cz,.72,.25,.72,iron,ang);circCol(cx,cz,.45,8,'lcol');
       _m1.makeRotationFromEuler(_e1.set(0,ang+Math.PI/2,sgn*.8));_m1.setPosition(cx-nx*sgn*.8,L_DECK-2.1,cz-nz*sgn*.8);boxM('iron',_m1,.25,2.2,.25,iron);}
     box('iron',a.x,L_DECK-2.0,a.z,2*w+.6,.8,.6,iron,ang,2);}
   // stations
-  const ss=C('#6d5a44');for(const st of L_STATIONS){srcMark(st.n+' station');const pos=stationPos(st);const {x,z,ax,az}=pos;const along=Math.abs(ax)>.5;
-    for(const sgn of [-1,1]){const px=x+(along?0:sgn*4.7),pz=z+(along?sgn*4.7:0);box('wood',px,L_DECK+.8,pz,along?60:2.6,.25,along?2.6:60,C('#5b4a38'));
-      for(let k=-27;k<=27;k+=6){const qx=px+(along?k:sgn*.8),qz=pz+(along?sgn*.8:k);box('iron',qx,L_DECK+1.05,qz,.18,3.2,.18,iron);}
-      box('metal',px+(along?0:sgn*.4),L_DECK+4.2,pz+(along?sgn*.4:0),along?58:3.6,.18,along?3.6:58,C('#3d3a33'));
-      box('wood',px+(along?0:sgn*1.2),L_DECK+1.05,pz+(along?sgn*1.2:0),along?5:2,2.8,along?2:5,ss);
-      signQuad('streetsign',px+(along?0:sgn*1.9),L_DECK+3.85,pz+(along?sgn*1.9:0),along?0:sgn,along?sgn:0,6,.55,streetUV(st.n));
-      // stairs down to the sidewalk off a platform end. The run is 12 m along the street on the sidewalk strip, so pick the end and
-      // direction whose footprint stays clear of cross streets (a fixed +30 m put the stairs into Randolph, Adams and Jackson)
-      const so=8.6,sc=along?x:z;const clearOfCross=(a,b)=>{const lo=Math.min(a,b)-1.2,hi=Math.max(a,b)+1.2;
-        return along?!NS.some(s=>z>=s.z0&&z<=s.z1&&hi>s.x-s.w/2&&lo<s.x+s.w/2):!EW.some(e=>x>=e.x0&&x<=e.x1&&hi>e.z-e.w/2&&lo<e.z+e.w/2);};
-      let s0=30,dd=1;for(const [c0,cd] of [[30,1],[-30,-1],[30,-1],[-30,1]])if(clearOfCross(sc+c0,sc+c0+cd*12)){s0=c0;dd=cd;break;}
-      const at=(t,lat)=>along?[x+t,z+lat]:[x+lat,z+t];
-      {const [lx,lz]=at(s0-dd,sgn*6.8);box('wood',lx,L_DECK+.8,lz,along?2.4:4.4,.25,along?4.4:2.4,C('#5b4a38'));}
-      const pitch=.59*dd;{const [mx,mz]=at(s0+dd*6,sgn*so);_m1.makeRotationFromEuler(_e1.set(pitch,along?Math.PI/2:0,0,'YXZ'));_m1.setPosition(mx,(L_DECK+.9)/2,mz);boxM('wood',_m1,1.5,.3,14.4,C('#4b3d30'));}
-      for(const o of [-.75,.75]){const [mx,mz]=at(s0+dd*6,sgn*so+o);_m1.makeRotationFromEuler(_e1.set(pitch,along?Math.PI/2:0,0,'YXZ'));_m1.setPosition(mx,(L_DECK+.9)/2+.5,mz);boxM('iron',_m1,.06,.06,14.4,C('#222'));}
-      {const [ax2,az2]=at(s0,sgn*so-.8),[bx2,bz2]=at(s0+dd*12,sgn*so+.8);boxCol(Math.min(ax2,bx2),Math.min(az2,bz2),Math.max(ax2,bx2),Math.max(az2,bz2),6,-1,'stair');}}}
+  L_STATIONS.forEach((st,i)=>buildStation(st,i));
   return center;}
+// the frame of a station's platform on side sgn (+1 outside the loop, -1 inside), and where its stair goes: the first end and way
+// down whose footprint (landing included) keeps clear of the cross streets
+function stationPlatform(st,i,sgn){const q=stationPos(st),o=[[0,-1],[1,0],[0,1],[-1,0]][st.side];
+  const p={i,st,sgn,x:q.x,z:q.z,ax:q.ax,az:q.az,nx:o[0]*sgn,nz:o[1]*sgn,track:sgn>0?0:1,e:1,down:1,aTop:0,aBot:0,sb:null};const along=Math.abs(q.ax)>.5,c0=along?q.x:q.z;
+  const clear=(a0,a1)=>{const lo=c0+Math.min(a0,a1)-1.2,hi=c0+Math.max(a0,a1)+1.2;
+    return along?!NS.some(s=>q.z>=s.z0&&q.z<=s.z1&&hi>s.x-s.w/2&&lo<s.x+s.w/2):!EW.some(s=>q.x>=s.x0&&q.x<=s.x1&&hi>s.z-s.w/2&&lo<s.z+s.w/2);};
+  for(const [e,down] of [[1,1],[-1,-1],[1,-1],[-1,1]]){const top=down===e?e*(LP.half+LP.land):e*LP.half,bot=top+down*LS.run;
+    if(clear(Math.min(top,bot,e*LP.half),Math.max(top,bot,e*(LP.half+LP.land)))){p.e=e;p.down=down;break;}}
+  p.aTop=p.down===p.e?p.e*(LP.half+LP.land):p.e*LP.half;p.aBot=p.aTop+p.down*LS.run;p.sb=lRect(p,p.aTop,p.aBot,LP.s0,LP.s1);return p;}
+function buildStation(st,i){srcMark(st.n+' station');
+  const iron=C('#34402f'),deck=C('#5b4a38'),green=C('#2f4a36'),cream=C('#d8cfae'),roofC=C('#3a3831'),stairW=C('#4b3d30'),stepC=C('#57473a');
+  for(const sgn of [1,-1]){const p=stationPlatform(st,i,sgn),e=p.e,H=LP.half,lm=(LP.l0+LP.l1)/2;L_PLATS.push(p);
+    // ----- the platform: plank deck with a pale edge, fascias, brackets back to the girders, a railing on the street side -----
+    lBox(p,'wood',0,lm,L_PLAT-.25,2*H,LP.l1-LP.l0,.25,deck,2);lBox(p,'paint',0,LP.l0+.14,L_PLAT-.245,2*H,.24,.25,C('#cfc6ab'));
+    for(const l of [LP.l0+.03,LP.l1-.03])lBox(p,'paint',0,l,L_PLAT-.62,2*H,.06,.38,green);
+    for(let a=-H+3;a<=H-3;a+=6)lBeam(p,'iron',a,2.9,L_DECK-.8,a,LP.l1-.3,L_PLAT-.32,.14,.14,iron);
+    const rail=(a0,a1,l0,l1,y)=>{const len=Math.hypot(a1-a0,l1-l0);for(let k=0;k<=Math.round(len/2);k++){const t=k/Math.max(1,Math.round(len/2));lBox(p,'iron',a0+(a1-a0)*t,l0+(l1-l0)*t,y,.06,.06,1.05,iron);}
+      for(const h of [.5,1.02])lBeam(p,'iron',a0,l0,y+h,a1,l1,y+h,.05,.05,iron);};
+    rail(-H,H,LP.l1-.05,LP.l1-.05,L_PLAT);rail(-e*H,-e*H,LP.l0+.1,LP.l1-.05,L_PLAT);
+    lCol(p,-H,H,LP.l1-.05,LP.l1+.1,L_PLAT-.3,L_PLAT+1.1);lCol(p,-e*H-e*.15,-e*H,LP.l0,LP.l1+.1,L_PLAT-.3,L_PLAT+1.1);
+    // ----- the canopy: iron columns with braced heads, a roof pitched down toward the track, green fascias trimmed in cream -----
+    for(let a=-H+3;a<=H-3;a+=6){lBox(p,'iron',a,6.1,L_PLAT,.2,.2,3.4,iron);lBox(p,'iron',a,6.1,L_PLAT+3.26,.36,.36,.14,iron);
+      lBeam(p,'iron',a,6.1,L_PLAT+2.45,a,3.6,L_PLAT+3.12,.08,.08,iron);lBeam(p,'iron',a,6.1,L_PLAT+2.6,a,6.75,L_PLAT+3.25,.08,.08,iron);
+      addCol({circle:1,x:lWorld(p,a,6.1,_lsw).x,z:_lsw.z,r:.16,y0:L_PLAT-.5,y1:L_PLAT+3.4,tag:'post'});}
+    const tilt=Math.atan2(.32,3.9);lTilt(p,'roof',0,4.95,L_PLAT+3.36,2*H+.4,4.1,.09,tilt,roofC);
+    for(const [l,y] of [[2.92,L_PLAT+3.02],[6.98,L_PLAT+3.34]]){lBox(p,'paint',0,l,y,2*H+.4,.07,.3,green);lBox(p,'paint',0,l+(l<5?-.02:.02),y-.05,2*H+.4,.05,.06,cream);}
+    for(let a=-H+6;a<=H-6;a+=12){lBox(p,'metal',a,4.7,L_PLAT+2.85,.03,.03,.38,iron);lBox(p,'glow',a,4.7,L_PLAT+2.66,.26,.26,.22,C('#f3dca0'));}
+    for(const a of [-14,14])for(const f of [1,-1]){lWorld(p,a,3.95,_lsw);signQuad('streetsign',_lsw.x+p.nx*f*.03,L_PLAT+2.55,_lsw.z+p.nz*f*.03,-p.nx*f,-p.nz*f,5.2,.5,streetUV(st.n));}
+    // ----- the agent's booth near the stair end, benches facing the track, and where people wait -----
+    const b0=e*15.4,b1=e*20.6,bc=(b0+b1)/2;lBox(p,'paint',bc,5.88,L_PLAT,5.2,1.3,2.6,green);lBox(p,'paint',bc,5.88,L_PLAT+2.6,5.5,1.5,.12,cream);lBox(p,'roof',bc,5.88,L_PLAT+2.72,5.6,1.6,.1,roofC);
+    for(const a of [bc-1.5,bc+.2])lBox(p,'glow',a,5.2,L_PLAT+1.05,1.2,.04,.95,C('#e8d6a0'));lBox(p,'plain',bc+1.75,5.21,L_PLAT,.9,.04,2.1,C('#241c14'));
+    lCol(p,Math.min(b0,b1),Math.max(b0,b1),5.2,LP.l1,L_PLAT-.2,L_PLAT+2.8);
+    const face=Math.atan2(-p.nx,-p.nz);
+    for(const a of [-e*6,-e*12,-e*24]){lWorld(p,a,6.06,_lsw);lBench(_lsw.x,_lsw.z,face);BENCHES.push({x:_lsw.x,z:_lsw.z,yaw:face,y0:L_PLAT,alive:true,tried:false,sit:null});
+      lCol(p,a-.95,a+.95,5.8,6.35,L_PLAT-.2,L_PLAT+.9);}
+    for(const a of [e*6,-e*2,e*12])L_WAIT.push({x:lWorld(p,a,4.4,_lsw).x,z:_lsw.z,yaw:face+rnd(-.5,.5),p:null,tried:false,plat:p});
+    // ----- the landing at the stair end, on two posts, railed round -----
+    const la0=e*H,la1=e*(H+LP.land),lc=(la0+la1)/2;lBox(p,'wood',lc,(LP.l0+LP.s1)/2,L_PLAT-.25,LP.land,LP.s1-LP.l0,.25,deck,2);
+    for(const a of [e*(H+.2),e*(H+LP.land-.2)]){lWorld(p,a,LP.s1+.15,_lsw);box('iron',_lsw.x,0,_lsw.z,.3,L_PLAT-.25,.3,iron);circCol(_lsw.x,_lsw.z,.2,L_PLAT-.3,'lcol');L_KEEP.push([_lsw.x-.2,_lsw.z-.2,_lsw.x+.2,_lsw.z+.2]);}
+    const out=p.down===e;
+    rail(la1,la1,LP.l0+.1,out?LP.s0:LP.s1,L_PLAT);lCol(p,la1,la1+e*.15,LP.l0,out?LP.s0:LP.s1+.15,L_PLAT-.3,L_PLAT+1.1);
+    rail(la0,la1,LP.s1+.05,LP.s1+.05,L_PLAT);lCol(p,la0,la1,LP.s1,LP.s1+.15,L_PLAT-.3,L_PLAT+1.1);
+    rail(la0,la0,LP.l1,out?LP.s1:LP.s0,L_PLAT);lCol(p,la0-e*.15,la0,LP.l1,out?LP.s1+.15:LP.s0,L_PLAT-.3,L_PLAT+1.1);
+    lBox(p,'roof',lc,(LP.l1+LP.s1)/2+.15,L_PLAT+3.05,LP.land+.3,LP.s1-LP.l1+.6,.09,roofC);lBox(p,'paint',lc,LP.s1+.42,L_PLAT+2.8,LP.land+.3,.07,.3,green);
+    for(const a of [e*(H+.15),e*(H+LP.land-.15)])lBox(p,'iron',a,LP.s1+.35,L_PLAT,.16,.16,3.05,iron);
+    buildStair(p,{iron,green,cream,roofC,stairW,stepC});}}
+// the stair: blocky treads on stringers, a soffit, handrails and balusters, a pitched canopy on posts, the station's name over the
+// way in; railings and the space beneath it are colliders cut into slices, each only as high as the stair above it
+function buildStair(p,c){const sm=(LP.s0+LP.s1)/2,W=LP.s1-LP.s0,R=LS.rise,T=LS.tread,t0=(LS.mid-1)*T,t1=t0+LS.midLen;
+  L_KEEP.push(p.sb);
+  for(let k=1;k<LS.n;k++){const u0=k<LS.mid?(k-1)*T:k===LS.mid?t0:t1+(k-LS.mid-1)*T,u1=k===LS.mid?t1:u0+T,top=CURB+k*R,a0=lStairA(p,u0),a1=lStairA(p,u1);
+    lBox(p,'wood',(a0+a1)/2,sm,top-.38,Math.abs(a1-a0),W,.38,k===LS.mid?c.stairW:c.stepC);lBox(p,'paint',a0-p.down*.025,sm,top-.025,.05,W,.03,C('#8b7b62'));}
+  const g=R/T,cs=Math.hypot(1,g);
+  for(const [u0,u1] of [[0,t0],[t1,LS.run]]){const um=(u0+u1)/2,am=lStairA(p,um),ym=lStairY(p,um),len=(u1-u0)*cs;
+    for(const l of [LP.s0-.06,LP.s1+.06])lSlope(p,'iron',am,l,ym-.12,len,.12,.5,c.iron);
+    lSlope(p,'wood',am,sm,ym-.46,len,W+.2,.06,c.stairW);
+    for(const l of [LP.s0+.03,LP.s1-.03])lSlope(p,'iron',am,l,ym+.95,len,.06,.06,c.iron);
+    lSlope(p,'roof',am,sm,ym+2.62,len+.3,W+.8,.08,c.roofC);for(const l of [LP.s0-.4,LP.s1+.4])lSlope(p,'paint',am,l,ym+2.5,len+.3,.07,.28,c.green);}
+  {const am=lStairA(p,(t0+t1)/2),y=CURB+LS.mid*R;lBox(p,'roof',am,sm,y+2.58,LS.midLen+.3,W+.8,.08,c.roofC);}
+  for(let u=.15;u<LS.run;u+=1.1)for(const l of [LP.s0+.03,LP.s1-.03])lBox(p,'iron',lStairA(p,u),l,lStairY(p,u),.04,.04,.95,c.iron);
+  for(let u=.1;u<=LS.run;u+=LS.run/5)for(const l of [LP.s0-.14,LP.s1+.14])lBox(p,'iron',lStairA(p,u),l,lStairY(p,u)-.1,.12,.12,2.72,c.iron);
+  // the way in: a beam across the bottom with the station's name, facing the street it rises from
+  {const a=lStairA(p,.02),fx=p.ax*p.down,fz=p.az*p.down;lBox(p,'iron',a,sm,CURB+2.95,.14,W+.5,.14,c.iron);lWorld(p,a+p.down*.08,sm,_lsw);
+    signQuad('streetsign',_lsw.x,CURB+2.72,_lsw.z,fx,fz,W+.2,.38,streetUV(p.st.n));}
+  // colliders: in slices up the run, the railings on both sides and the solid space under the stair (its top well under the
+  // treads, so a walker's reach into the next slice, where the stair is a little higher, never catches on it)
+  const K=12;for(let k=0;k<K;k++){const u0=LS.run*k/K,u1=LS.run*(k+1)/K,h0=lStairY(p,u0),h1=lStairY(p,u1),a0=lStairA(p,u0),a1=lStairA(p,u1);
+    lCol(p,a0,a1,LP.s0-.2,LP.s0,h0-.45,h1+1.1);lCol(p,a0,a1,LP.s1,LP.s1+.2,h0-.45,h1+1.1);if(h0-.45>CURB+.2)lCol(p,a0,a1,LP.s0,LP.s1,-1,h0-.45);}}
+// a platform bench (the pavement bench's shape): slatted seat and back on iron ends
+function lBench(x,z,yaw){const c=Math.cos(yaw),s=Math.sin(yaw),at=(lx,lz)=>[x+lx*c+lz*s,z-lx*s+lz*c],w=C('#6e4b2c'),ir=C('#24251f');
+  for(const lz of [-.13,.01,.15]){const [bx,bz]=at(0,lz);box('wood',bx,L_PLAT+.4,bz,1.8,.04,.12,w,yaw);}
+  for(const [ly,lz] of [[.52,-.235],[.68,-.27]]){const [bx,bz]=at(0,lz);_m1.makeRotationFromEuler(_e1.set(-.2,yaw,0,'YXZ')).setPosition(bx,L_PLAT+ly+.05,bz);boxM('wood',_m1,1.8,.1,.03,w);}
+  for(const lx of [-.82,.82]){for(const [ly,lz,h,d] of [[0,.16,.4,.05],[0,-.21,.82,.05],[.38,-.02,.04,.44]]){const [bx,bz]=at(lx,lz);box('metal',bx,L_PLAT+ly,bz,.05,h,d,ir,yaw);}}}
 function stationPos(st){if(st.side===0)return{x:st.t,z:-330,ax:1,az:0};if(st.side===1)return{x:210,z:st.t,ax:0,az:1};if(st.side===2)return{x:st.t,z:370,ax:1,az:0};return{x:-330,z:st.t,ax:0,az:1};}
 function streetUV(name){let i=TX.stationIdx[name];if(i==null)i=0;const x=(i%4)*.25,y=Math.floor(i/4);return[x,1-(y+1)/8,x+.25,1-y/8];}
 
@@ -1030,7 +1180,7 @@ function buildFurniture(scene){
   const posts=[];
   for(const s of [...NS,...EW]){const twin=/Michigan|State/.test(s.n);const a0=s.ns?s.z0:s.x0,a1=s.ns?s.z1:s.x1;
     for(let t=a0+8;t<a1-8;t+=28){if(nearCross(s,t,5))continue;for(const sg of [-1,1]){const off=s.rw/2+.55;const x=s.ns?s.x+sg*off:t,z=s.ns?t:s.z+sg*off;if(surfType(x,z)!=='block'&&surfType(x,z)!=='park')continue;
-      if(Math.abs(x)>VIS.x1||x<VIS.x0+10||z<VIS.z0+10||z>VIS.z1-10)continue;posts.push({x,z,twin,s,ang:s.ns?(sg>0?Math.PI/2:-Math.PI/2):(sg>0?0:Math.PI)});}}}
+      if(Math.abs(x)>VIS.x1||x<VIS.x0+10||z<VIS.z0+10||z>VIS.z1-10||lKeep(x,z,.8))continue;posts.push({x,z,twin,s,ang:s.ns?(sg>0?Math.PI/2:-Math.PI/2):(sg>0?0:Math.PI)});}}}
   // ----- the lamp posts: five period designs chosen by street; every lamp its own paint, height and lean -----
   // Loop streets: the Chicago standard (fluted iron base, tapered shaft, acorn globe), some crook-arm pendants, the odd five-globe
   // cluster; Michigan and State: the boulevard twin; the north side and the outer streets: crook arms and wooden poles with gooseneck
@@ -1098,7 +1248,7 @@ function buildFurniture(scene){
     placeProp('signpost',px,pz,0,{ns:it.n.n,ew:it.e.n});}// its own post at every corner (the old plates hung in the air where a stoplight stood)
   // ----- hydrants (instanced, breakable) -----
   srcMark('Fire hydrants');
-  const hyd=[];for(const s of NS){for(let t=s.z0+40;t<s.z1-20;t+=95){if(nearCross(s,t,6))continue;const x=s.x+(s.rw/2+.5)*(hyd.length%2?1:-1);if(surfType(x,t)!=='block')continue;hyd.push([x,t]);}}
+  const hyd=[];for(const s of NS){for(let t=s.z0+40;t<s.z1-20;t+=95){if(nearCross(s,t,6))continue;const x=s.x+(s.rw/2+.5)*(hyd.length%2?1:-1);if(surfType(x,t)!=='block'||lKeep(x,t,.6))continue;hyd.push([x,t]);}}
   const hg=mergeGeos([[new THREE.CylinderGeometry(.17,.2,.62,10),new THREE.Matrix4().makeTranslation(0,.31,0)],[new THREE.SphereGeometry(.18,10,6,0,TAU,0,Math.PI/2),new THREE.Matrix4().makeTranslation(0,.62,0)],[new THREE.CylinderGeometry(.06,.06,.5,6),new THREE.Matrix4().makeRotationZ(Math.PI/2).setPosition(0,.45,0)]]);
   const HI=instMesh(hg,new THREE.MeshStandardMaterial({color:C('#8f2219'),roughness:.5,metalness:.3}),hyd.length);hyd.forEach((h,i)=>{dm.makeTranslation(h[0],CURB,h[1]);HI.setMatrixAt(i,dm);const r={K:SPK.hydrant,x:h[0],z:h[1],yaw:0,y0:CURB,i,alive:true,dyn:null,anim:null,downT:0,put:M=>{HI.setMatrixAt(i,M);HI.instanceMatrix.needsUpdate=true;}};r.col=circCol(h[0],h[1],.22,1,'prop',r);HYDRANTS.push(r);});INST.hydrants=HI;scene.add(HI);
   // ----- trolley poles & overhead wires (State St, Madison St) -----
@@ -3357,20 +3507,183 @@ function updateTrams(dt,px,pz){for(const t of TRAMS){const L=t.line;const off=1.
   t.vel.set(Math.sin(t.yaw)*t.aiSpeed,0,Math.cos(t.yaw)*t.aiSpeed);t.root.position.copy(t.pos);t.root.rotation.y=t.yaw;t.pole.position.set(0,4.4,-3.4);t.pole.rotation.set(-1.1,0,0);
   if(t.aiSpeed>7&&chance(dt*.8))SPARKS.emit(t.pos.x+Math.sin(t.yaw)*-5.5,5.9,t.pos.z+Math.cos(t.yaw)*-5.5,rnd(-1,1),rnd(-1,.5),rnd(-1,1),.25,.06,.7,.8,1.6,1,-6,0,0,0);}}
 // ================= THE "L" TRAINS =================
-const LTRAINS=[];let LCAR_PROTO=null;
-function buildLCar(){const g=C('#2f4a36'),dg=C('#1c2c20');return buildGroup(()=>{box('carpaint',0,L_DECK+.55,0,2.6,1.35,14.2,g);box('carpaint',0,L_DECK+1.9,0,2.6,.25,14.2,dg);
-  for(const s of [-1,1])for(let i=0;i<9;i++)box('glow',s*1.305,L_DECK+1.35,-6+i*1.5,.02,.62,1.05,C('#e8d6a0'));
-  const rs=new THREE.Shape();rs.moveTo(-1.32,0);rs.quadraticCurveTo(0,.6,1.32,0);rs.lineTo(-1.32,0);addGeo('plain',extr(rs,14.3,0),new THREE.Matrix4().makeTranslation(0,L_DECK+2.14,-7.15),C('#2d2d2a'));
-  for(const z of [-5,5]){box('metal',0,L_DECK+.25,z,2.0,.4,2.2,C('#1a1a1a'));}for(const z of [-7.12,7.12])box('carglass',0,L_DECK+1.35,z,1.4,.62,.02);box('plain',0,L_DECK+2.05,7.12,.9,.2,.05,C('#101010'));});}
-function buildLTrains(){LCAR_PROTO=buildLCar();const cfg=[[0,1,.05],[0,1,.55],[1,-1,.3]];
-  for(const [tr,dir,frac] of cfg){const path=L_PATHS[tr];const cars=[];for(let i=0;i<4;i++){const c=LCAR_PROTO.clone();scene.add(c);cars.push(c);}
-   const stops=L_STATIONS.map(st=>{const p=stationPos(st);let best=0,bd=1e9;for(const q of path.P){const d=Math.hypot(q.x-p.x,q.z-p.z);if(d<bd){bd=d;best=q.s;}}return best;});LTRAINS.push({path,cars,dir,s:frac*path.len,v:0,dwell:0,stops,last:-1});}}
+// Four trains of four cars, two on each track (the outer one clockwise, the inner one the other way round), stopping 9 s at every
+// station with the train centred on the platforms; the doors on the platform side slide open while it stands. The cars are
+// instanced: one draw call per material for every car on the Loop, one more for the doors.
+const LTRAINS=[],LCAR={meshes:[],doors:null,n:0},L_CAR_GAP=14.8,L_CARS=4;
+const _lcM=new THREE.Matrix4(),_lcD=new THREE.Matrix4(),_lcN=new THREE.Matrix4(),_lcQ=new THREE.Quaternion(),_lcS=new THREE.Vector3(1,1,1),_lcY=new THREE.Vector3(0,1,0);
+// a car of the 1920s steel fleet: 14.2 m, its floor level with the platforms (1.1 m over the rail), windows down both sides, two
+// side doors each side (dark openings here; the sliding panels are instanced apart), trucks, end windows, marker lamps, a headlamp
+// at each end and an arched roof with ventilators. Local +z runs along the track, +x out of the loop.
+function buildLCarShape(){const g=C('#2f4a36'),dg=C('#1c2c20'),blk=C('#151515'),win=C('#e8d6a0'),R0=L_RAIL;
+  for(const z of [-5.2,5.2]){box('metal',0,R0+.18,z,2.2,.42,2.7,blk);for(const x of [-.74,.74])for(const dz of [-.95,.95]){_m1.makeRotationZ(Math.PI/2).setPosition(x,R0+.38,z+dz);cyl('metal',0,0,0,.38,.38,.12,12,C('#262626'),false,_m1);}}
+  box('carpaint',0,R0+.62,0,2.35,.42,13.8,blk);box('carpaint',0,R0+1.0,0,2.7,1.0,14.2,g);box('carpaint',0,R0+1.98,0,2.72,.06,14.22,dg);
+  box('carpaint',0,R0+2.04,0,2.62,.8,14.1,g);box('carpaint',0,R0+2.84,0,2.7,.4,14.2,g);
+  for(const s of [-1,1]){for(const z of [-3.85,-2.75,-1.65,-.55,.55,1.65,2.75,3.85])box('glow',s*1.315,R0+2.1,z,.03,.66,.9,win);
+    for(const z of [-6.4,6.4])box('glow',s*1.315,R0+2.1,z,.03,.66,.6,win);for(const z of [-5.05,5.05])box('plain',s*1.362,R0+1.1,z,.02,2.0,1.1,blk);}
+  for(const z of [-7.1,7.1]){const f=Math.sign(z);for(const x of [-.72,.72])box('glow',x,R0+2.1,z+f*.012,.72,.66,.03,win);box('plain',0,R0+1.1,z+f*.02,.8,1.9,.04,dg);
+    for(const x of [-1.18,1.18])box('glow',x,R0+2.95,z+f*.014,.13,.13,.03,C('#f0b35a'));
+    _m1.makeRotationX(Math.PI/2).setPosition(0,R0+3.08,z+f*.05);cyl('glow',0,0,0,.13,.13,.1,10,C('#fff4d0'),false,_m1);box('metal',0,R0+.72,z+f*.16,.3,.22,.32,blk);}
+  const rs=new THREE.Shape();rs.moveTo(-1.36,0);rs.quadraticCurveTo(0,.62,1.36,0);rs.lineTo(-1.36,0);addGeo('plain',extr(rs,14.3,0),new THREE.Matrix4().makeTranslation(0,R0+3.24,-7.15),C('#2d2d2a'));
+  for(let z=-5.4;z<=5.41;z+=2.16)box('plain',0,R0+3.8,z,.5,.16,.8,C('#262624'));}
+// s along a path of the point nearest (x,z)
+function pathS(path,x,z){const P=path.P,n=P.length;let best=0,bd=1e18;for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n],ex=b.x-a.x,ez=b.z-a.z,l2=ex*ex+ez*ez||1e-9;
+    const t=clamp(((x-a.x)*ex+(z-a.z)*ez)/l2,0,1),px=a.x+ex*t,pz=a.z+ez*t,d=(px-x)**2+(pz-z)**2;if(d<bd){bd=d;best=a.s+t*Math.sqrt(l2);}}return best%path.len;}
+function buildLTrains(){const car=buildGroup(buildLCarShape),door=buildGroup(()=>box('carpaint',0,L_RAIL+1.1,0,.04,2.0,1.1,C('#27412f'))).children[0];
+  const cfg=[[0,1,.05],[0,1,.55],[1,-1,.3],[1,-1,.8]];LCAR.n=cfg.length*L_CARS;
+  for(const m of car.children){const im=new THREE.InstancedMesh(m.geometry,m.material,LCAR.n);im.name='L cars: '+m.name;im.castShadow=m.castShadow;im.receiveShadow=true;im.frustumCulled=false;scene.add(im);LCAR.meshes.push(im);}
+  LCAR.doors=new THREE.InstancedMesh(door.geometry,door.material,LCAR.n*4);LCAR.doors.name='L car doors';LCAR.doors.castShadow=true;LCAR.doors.receiveShadow=true;LCAR.doors.frustumCulled=false;scene.add(LCAR.doors);
+  cfg.forEach(([tr,dir,frac],k)=>{const path=L_PATHS[tr],cars=[];for(let i=0;i<L_CARS;i++)cars.push(new THREE.Object3D());
+    // a stop puts the middle of the train (car 0 leads) at the station
+    const stops=L_STATIONS.map(st=>{const q=stationPos(st);return((pathS(path,q.x,q.z)+dir*L_CAR_GAP*(L_CARS-1)/2)%path.len+path.len)%path.len;});
+    const T={path,cars,dir,track:tr,s:frac*path.len,v:0,dwell:0,stops,last:-1,next:-1,dNext:1e9,door:0,near:1e9,base:k*L_CARS,hurry:false};LTRAINS.push(T);lPoseCars(T);});
+  lInstances();}
 const _lp={x:0,z:0,dx:0,dz:1},_lq={x:0,z:0,dx:0,dz:1};
-function updateLTrains(dt,px,pz){for(const T of LTRAINS){const len=T.path.len;let dNext=1e9,idx=-1;T.stops.forEach((s,i)=>{let d=((s-T.s)*T.dir%len+len)%len;if(i===T.last&&d>len-40)return;if(d<dNext){dNext=d;idx=i;}});
-  let target=15;if(T.dwell>0){T.dwell-=dt;target=0;}else{target=Math.min(15,Math.sqrt(Math.max(0,dNext-.5)*2*1.3));if(dNext<.6&&T.v<1.5){T.dwell=9;T.last=idx;T.v=0;AUD.bell(px,pz,.25);}}
-  T.v+=clamp(target-T.v,-1.4*dt,1.1*dt);T.s=((T.s+T.v*dt*T.dir)%len+len)%len;
-  for(let i=0;i<4;i++){const sc=T.s-T.dir*(i*14.8);samplePath(T.path,sc+5,_lp);samplePath(T.path,sc-5,_lq);const c=T.cars[i];c.position.set((_lp.x+_lq.x)/2,0,(_lp.z+_lq.z)/2);c.rotation.y=Math.atan2(_lp.x-_lq.x,_lp.z-_lq.z);}
-  const dp=Math.hypot(T.cars[1].position.x-px,T.cars[1].position.z-pz);T.near=dp;if(dp<120&&T.v>4&&chance(dt*2))SPARKS.emit(T.cars[0].position.x,L_DECK+.2,T.cars[0].position.z,rnd(-2,2),rnd(0,2),rnd(-2,2),.3,.07,1.6,1.1,.5,1,-9.8,0,0,0);}}
+function lPoseCars(T){for(let i=0;i<L_CARS;i++){const sc=T.s-T.dir*i*L_CAR_GAP;samplePath(T.path,sc+5,_lp);samplePath(T.path,sc-5,_lq);const c=T.cars[i];c.position.set((_lp.x+_lq.x)/2,0,(_lp.z+_lq.z)/2);c.rotation.y=Math.atan2(_lp.x-_lq.x,_lp.z-_lq.z);}}
+// every car's matrix, and its doors': the platform side's slid open along the car by T.door (0 shut, 1 open)
+function lInstances(){const D=LCAR.doors;for(const T of LTRAINS){const side=T.track===0?1:-1;
+    for(let i=0;i<L_CARS;i++){const c=T.cars[i],j=T.base+i;_lcQ.setFromAxisAngle(_lcY,c.rotation.y);_lcM.compose(c.position,_lcQ,_lcS);for(const m of LCAR.meshes)m.setMatrixAt(j,_lcM);
+      for(let d=0;d<4;d++){const sx=d<2?1:-1,sz=d%2?1:-1,open=sx===side?T.door:0;_lcD.makeTranslation(sx*1.39,0,sz*(5.05+open*1.12));D.setMatrixAt(j*4+d,_lcN.multiplyMatrices(_lcM,_lcD));}}}
+  for(const m of LCAR.meshes)m.instanceMatrix.needsUpdate=true;D.instanceMatrix.needsUpdate=true;}
+// seconds until train T stands at station i (a rough reckoning: 11 m/s under way, 13 s for each stop between)
+function lEta(T,i){if(T.dwell>0&&T.last===i)return 0;const len=T.path.len,d=((T.stops[i]-T.s)*T.dir%len+len)%len;let k=0;
+  for(let j=0;j<T.stops.length;j++){if(j===i)continue;const dj=((T.stops[j]-T.s)*T.dir%len+len)%len;if(dj<d&&!(j===T.last&&(dj<1||dj>len-40)))k++;}return d/11+k*13+Math.max(0,T.dwell);}
+function updateLTrains(dt,px,pz){const P=PLAYER,h=P.h,onL=!LRIDE.on&&!P.car&&!P.mount&&!h.ragdoll&&h.pos.y>L_DECK-1,wait=onL&&h.pos.y>L_PLAT-.5?lPlatAt(h.pos.x,h.pos.z):null;
+  // the train you wait for makes up time while it is far off and out of sight, so no wait on a platform runs much past a minute
+  let lead=null,leadT=1e9;if(wait)for(const T of LTRAINS){if(T.track!==wait.track)continue;const t=lEta(T,wait.i);if(t<leadT){leadT=t;lead=T;}}
+  for(const T of LTRAINS){const len=T.path.len;let dNext=1e9,idx=-1;
+    // the next stop ahead: the one just left does not count until the train is 40 m past it (nor while it still stands at it)
+    T.stops.forEach((s,i)=>{const d=((s-T.s)*T.dir%len+len)%len;if(i===T.last&&(d<1||d>len-40))return;if(d<dNext){dNext=d;idx=i;}});T.next=idx;T.dNext=dNext;
+    T.hurry=T===lead&&leadT>40&&T.near>260;const acc=T.hurry?2.2:1,vmax=T.hurry?24:15;let target=vmax;
+    if(T.dwell>0){T.dwell-=dt;target=0;if(T.dwell<=0)lDepart(T);}
+    else{target=Math.min(vmax,Math.sqrt(Math.max(0,dNext-.5)*2*1.3*acc));if(dNext<.6&&T.v<1.5){T.dwell=T.hurry?3:9;T.last=idx;T.v=0;T.s=T.stops[idx];lArrive(T);}}
+    T.v+=clamp(target-T.v,-1.4*dt*acc,1.1*dt*acc);T.s=((T.s+T.v*dt*T.dir)%len+len)%len;T.door=clamp(T.door+dt*(T.dwell>1.6&&T.v<.2?1.4:-1.6),0,1);
+    lPoseCars(T);const dp=Math.hypot(T.cars[1].position.x-px,T.cars[1].position.z-pz);T.near=dp;
+    if(dp<120&&T.v>4&&chance(dt*2))SPARKS.emit(T.cars[0].position.x,L_DECK+.2,T.cars[0].position.z,rnd(-2,2),rnd(0,2),rnd(-2,2),.3,.07,1.6,1.1,.5,1,-9.8,0,0,0);
+    if(onL)lHitPlayer(T);}
+  lInstances();if(!AER.on)lUpdateWaiting(dt,px,pz);}
+function lArrive(T){AUD.bell(T.cars[0].position.x,T.cars[0].position.z,.5);}
+// people waiting on that platform board (those you are not looking at: the rest wait for the next one)
+function lDepart(T){for(const w of L_WAIT)if(w.p&&w.plat.i===T.last&&w.plat.track===T.track&&!inView(w.x,L_PLAT+1,w.z,1.5)){clearPeds([w.p]);w.p=null;w.tried=false;}}
+// a train meets you: on the track, under way, it knocks you down; otherwise (at the platform's edge, or standing) it shoulders you aside
+function lHitPlayer(T){const h=PLAYER.h;if(h.pos.y>L_RAIL+3.9)return;
+  for(const c of T.cars){const dx=h.pos.x-c.position.x,dz=h.pos.z-c.position.z,s=Math.sin(c.rotation.y),co=Math.cos(c.rotation.y),lx=dx*co-dz*s,lz=dx*s+dz*co;if(Math.abs(lx)>1.65||Math.abs(lz)>7.4)continue;
+    if(T.v>1.2&&h.pos.y<L_PLAT-.5){knockByCar(h,s*T.dir*T.v,co*T.dir*T.v);PLAYER.down=0;AUD.thud(T.v,h.pos.x,h.pos.z);CAM.shake=.8;return;}
+    const nl=(lx<0?-1:1)*1.65;h.pos.x=c.position.x+nl*co+lz*s;h.pos.z=c.position.z-nl*s+lz*co;}}
+// ---------- people waiting on the platforms: set out of sight near you (as the bench sitters are); they board the next train ----------
+const L_WAIT=[];let lWaitT=0;
+function lUpdateWaiting(dt,px,pz){lWaitT-=dt;if(lWaitT>0)return;lWaitT=1.1;
+  for(const w of L_WAIT){const d=Math.hypot(w.x-px,w.z-pz);if(d>100){if(w.p){clearPeds([w.p]);w.p=null;}w.tried=false;}
+    else if(!w.p&&!w.tried&&d<75&&d>22&&!inView(w.x,L_PLAT+1,w.z,1.5)){w.tried=true;if(chance(.55)){const p=makeNPC(pick(['man','woman','worker','man','woman','nurse','priest']));
+      p.mode='special';p.h.state=chance(.4)?'read':'idle';p.h.place(w.x,L_PLAT,w.z,w.yaw);p.home=[w.x,w.z];scene.add(p.h.group);if(p.h.state==='read')p.h.setProp('paper2');w.p=p;}}}}
+// ---------- riding the L: E boards a train standing at your platform; E (or the button) gets off at any stop; a station picked
+// on the map takes you straight there (a fade); the camera cuts between shots that follow the train round the city ----------
+const LRIDE={on:false,busy:false,T:null,startS:0,dist:0,shot:'',prev:'',age:0,shotT:0,side:1,pst:-1,gone:0,cut:false,fix:new THREE.Vector3(),cp:new THREE.Vector3(),cl:new THREE.Vector3(),offReq:false};
+// where you stand on a platform: the platform, and a train standing at it on its track (or null)
+function lBoardable(pos){if(pos.y<L_PLAT-.5)return null;const p=lPlatAt(pos.x,pos.z);if(!p)return null;
+  for(const T of LTRAINS)if(T.track===p.track&&T.dwell>.4&&T.last===p.i)return{T,p};return{T:null,p};}
+function lFade(fn){lUI();const f=$('lfade');f.style.opacity='1';setTimeout(()=>{try{fn();}finally{setTimeout(()=>{f.style.opacity='0';},60);}},470);}
+function lBoard(T){const R=LRIDE;if(R.busy)return;R.busy=true;AUD.door();
+  lFade(()=>{const P=PLAYER;Object.assign(R,{on:true,busy:false,T,startS:T.s,dist:0,prev:'',offReq:false});P.h.group.visible=false;P.vel.set(0,0,0);
+    lShot(T.dwell>0?'platform':'chase',T.last);lRideShow(true);showToast('All aboard! The '+(T.track===0?'Outer Loop, clockwise':'Inner Loop, counterclockwise'));});}
+// off onto the platform beside the second car, facing along it
+function lPutOff(T){const p=L_PLATS.find(q=>q.i===T.last&&q.track===T.track)||L_PLATS[0],P=PLAYER,h=P.h,c=T.cars[1];lLocal(p,c.position.x,c.position.z,_lsl);const a=clamp(_lsl.a,-26,26);lWorld(p,a,4.4,_lsw);
+  const f=a>0?-1:1,yaw=Math.atan2(p.ax*f,p.az*f);h.place(_lsw.x,L_PLAT,_lsw.z,yaw);h.group.visible=true;h.state='idle';h.speed=0;P.vel.set(0,0,0);P.onGround=true;
+  CAM.yaw=yaw+Math.PI;CAM.pitch=.12;CAM.lastCar=undefined;return p;}
+function lAlight(){const R=LRIDE,T=R.T;if(R.busy||!T)return;R.busy=true;AUD.door();lFade(()=>{const p=lPutOff(T);lEndRide();showToast(L_STATIONS[p.i].n);});}
+// the ride ends (off at a stop, or leaving for the garage)
+function lEndRide(){const R=LRIDE;if(!R.on)return;if(R.T&&PLAYER.h.group.visible===false)lPutOff(R.T);R.on=false;R.busy=false;R.T=null;lRideShow(false);}
+function lFastTravel(i){const R=LRIDE,T=R.T;if(!R.on||R.busy||!T)return;if(T.dwell>0&&T.last===i){showToast('This is '+L_STATIONS[i].n);return;}R.busy=true;
+  lFade(()=>{const len=T.path.len;R.dist+=((T.stops[i]-T.s)*T.dir%len+len)%len;if(R.dist>=len){R.startS=T.stops[i];R.dist=0;}
+    T.s=T.stops[i];T.v=0;T.dwell=9;T.last=i;T.door=0;lPoseCars(T);
+    // another train standing close by on the same track goes round to the far side of the loop
+    for(const U of LTRAINS)if(U!==T&&U.path===T.path){const g=((U.s-T.s)%len+len)%len;if(g<110||g>len-110){U.s=(T.s+len/2)%len;U.v=0;U.dwell=0;U.last=-1;lPoseCars(U);}}
+    lInstances();PT.snap=true;R.busy=false;lShot('platform',i);lRideCamera(0,camera);updateStreaming(camera,0,true);LUI.t=0;showToast(L_STATIONS[i].n);});}
+function lRideUpdate(dt){const P=PLAYER,h=P.h,R=LRIDE,T=R.T;if(!T){R.on=false;return;}
+  // you ride in the second car: the city around it (traffic, people, sound, the street names) follows the train
+  const c=T.cars[1];h.pos.set(c.position.x,L_PLAT,c.position.z);h.group.position.copy(h.pos);h.speed=0;P.vel.set(0,0,0);
+  R.dist+=T.v*dt;if(R.dist>=T.path.len){R.startS=T.s;R.dist=0;}lRideUI(dt);if(R.busy)return;
+  if(PRESS.KeyE||R.offReq){R.offReq=false;if(T.dwell>.3&&T.v<.5)lAlight();else showToast('The doors are shut · get off at the next stop');}
+  if(PRESS.KeyC)lShot(lPickShot());for(let k=1;k<=6;k++)if(PRESS['Digit'+k])lFastTravel(L_ORDER[k-1]);}
+// ---------- the ride's camera ----------
+const _lvA={x:0,z:0,dx:0,dz:1},_lvB={x:0,z:0,dx:0,dz:1},_lrc=new THREE.Vector3(),_lrl=new THREE.Vector3();
+// the track under a point of the train `back` metres behind car 0's middle (negative: ahead of it), heading the way the train runs
+function lAlong(T,back,o){samplePath(T.path,T.s-T.dir*back,o);if(T.dir<0){o.dx=-o.dx;o.dz=-o.dz;}return o;}
+// shots: how long they hold, how briskly the camera follows (0: it stands still), the lens, and where it is and looks. `side`
+// picks the side of the street (right of the train: +1). Every offset stays within the street the L runs over.
+const L_SHOTS={
+  // behind and above the last car, the train leaning into the track ahead
+  chase:{dur:8,kc:3,kl:5,fov:52,pose(T,R){lAlong(T,86,_lvA);lAlong(T,L_CAR_GAP*.5,_lvB);_lrc.set(_lvA.x-_lvA.dz*R.side*2.5,L_RAIL+8.5,_lvA.z+_lvA.dx*R.side*2.5);_lrl.set(_lvB.x,L_RAIL+1.6,_lvB.z);}},
+  // alongside at window height, drifting slowly back down the cars
+  side:{dur:8,kc:9,kl:9,fov:46,pose(T,R){const b=4+R.age*3;lAlong(T,b,_lvA);lAlong(T,b-10,_lvB);_lrc.set(_lvA.x-_lvA.dz*R.side*7,L_RAIL+2.3,_lvA.z+_lvA.dx*R.side*7);_lrl.set(_lvB.x,L_RAIL+2,_lvB.z);}},
+  // from the pavement, as it comes overhead and goes by
+  street:{dur:10,kc:0,kl:4,fov:58,start(T,R){lAlong(T,-62,_lvA);R.fix.set(_lvA.x-_lvA.dz*R.side*9.2,0,_lvA.z+_lvA.dx*R.side*9.2);R.fix.y=groundAt(R.fix.x,R.fix.z)+1.6;},
+    pose(T,R){_lrc.copy(R.fix);lAlong(T,6,_lvB);_lrl.set(_lvB.x,L_RAIL+1.8,_lvB.z);}},
+  // the motorman's view down the track
+  front:{dur:7,kc:14,kl:10,fov:62,pose(T,R){lAlong(T,-7.7,_lvA);_lrc.set(_lvA.x,L_RAIL+2.4,_lvA.z);for(const a of [48,36,24,12]){lAlong(T,-7.7-a,_lvB);_lrl.set(_lvB.x,L_RAIL+1.3,_lvB.z);if(lSight(_lrl,_lrc))break;}}},
+  // high over the street, the train threading between the buildings
+  aerial:{dur:9,kc:2,kl:3,fov:50,pose(T,R){lAlong(T,L_CAR_GAP*1.5,_lvB);_lrc.set(_lvB.x-_lvB.dx*46,L_RAIL+62,_lvB.z-_lvB.dz*46);_lrl.set(_lvB.x,L_RAIL+1,_lvB.z);}},
+  // over the street beside the station, looking down across the platform at the train pulling in, standing, pulling out
+  crane:{dur:99,kc:0,kl:3,fov:50,start(T,R){const p=L_PLATS.find(q=>q.i===R.pst&&q.track===T.track)||L_PLATS[0];lAlong(T,0,_lvA);const f=Math.sign(_lvA.dx*p.ax+_lvA.dz*p.az)||1;
+      lWorld(p,-f*16,10.8,_lsw);R.fix.set(_lsw.x,L_PLAT+9,_lsw.z);},
+    pose(T,R){_lrc.copy(R.fix);lAlong(T,L_CAR_GAP*1.5,_lvB);_lrl.set(_lvB.x,L_RAIL+1.6,_lvB.z);}},
+  // on the platform: the train pulls in, stands, pulls out
+  platform:{dur:99,kc:0,kl:4,fov:54,start(T,R){const p=L_PLATS.find(q=>q.i===R.pst&&q.track===T.track)||L_PLATS[0];lAlong(T,0,_lvA);const f=Math.sign(_lvA.dx*p.ax+_lvA.dz*p.az)||1;
+      lWorld(p,f*27,5.0,_lsw);R.fix.set(_lsw.x,L_PLAT+1.7,_lsw.z);},
+    pose(T,R){_lrc.copy(R.fix);lAlong(T,T.dwell>0?L_CAR_GAP*1.5:0,_lvB);_lrl.set(_lvB.x,L_RAIL+2,_lvB.z);}}};
+function lShot(name,st){const R=LRIDE,T=R.T,S=L_SHOTS[name];if(L_AT_STATION[name])R.pst=st;R.prev=R.shot;R.shot=name;R.age=0;R.shotT=S.dur*rnd(.85,1.15);R.side=chance(.5)?1:-1;R.cut=true;if(S.start)S.start(T,R);}
+function lPickShot(){const R=LRIDE;return pick(['chase','side','street','front','aerial'].filter(s=>s!==R.shot&&s!==R.prev));}
+// the tail of the train has gone 10 m past the standing camera
+function lTailPast(T,R){lAlong(T,L_CAR_GAP*(L_CARS-1)+7.1,_lvA);return(_lvA.x-R.fix.x)*_lvA.dx+(_lvA.z-R.fix.z)*_lvA.dz>10;}
+// the director: at a station a station shot, the platform's or the crane's (arriving, standing, leaving); otherwise the next
+// moving shot when this one has run out
+const L_AT_STATION={platform:1,crane:1};
+function lDirector(dt){const R=LRIDE,T=R.T;R.age+=dt;R.shotT-=dt;const st=T.dwell>0?T.last:T.dNext<45?T.next:-1;
+  if(st>=0){if(!L_AT_STATION[R.shot]||R.pst!==st)lShot(chance(.6)?'platform':'crane',st);R.gone=0;return;}
+  // leaving a station: the shot holds until the train has gone by it (or 4.5 s), then the round of moving shots goes on
+  if(L_AT_STATION[R.shot]){R.gone+=dt;if(R.gone>4.5||lTailPast(T,R))lShot(lPickShot());return;}
+  if(R.shot==='street'){if(R.age>1.5&&lTailPast(T,R)||R.shotT<=0)lShot(lPickShot());return;}
+  if(R.shotT<=0)lShot(lPickShot());}
+// can the camera at c see the point t (no building between)?
+const _lsd=new THREE.Vector3();function lSight(t,c){_lsd.subVectors(c,t);const d=_lsd.length();if(d<.5)return true;_lsd.multiplyScalar(1/d);return rayCols(t,_lsd,d)>=d-.3;}
+function lRideCamera(dt,cam){const R=LRIDE;if(!R.T)return;if(dt>0)lDirector(dt);const S=L_SHOTS[R.shot];S.pose(R.T,R);
+  if(S.kc&&!lSight(_lrl,_lrc)){_lsd.subVectors(_lrc,_lrl);const d=_lsd.length();_lsd.multiplyScalar(1/d);_lrc.copy(_lrl).addScaledVector(_lsd,Math.max(2,rayCols(_lrl,_lsd,d)-.6));}
+  if(R.cut){R.cp.copy(_lrc);R.cl.copy(_lrl);R.cut=false;cam.fov=S.fov;cam.updateProjectionMatrix();}
+  else{if(S.kc)R.cp.lerp(_lrc,1-Math.exp(-dt*S.kc));else R.cp.copy(_lrc);R.cl.lerp(_lrl,1-Math.exp(-dt*S.kl));}
+  cam.position.copy(R.cp);cam.lookAt(R.cl);
+  // the mouse does not steer these shots; the listener faces the way the camera looks
+  MOUSE_DX=MOUSE_DY=0;const fx=R.cl.x-R.cp.x,fz=R.cl.z-R.cp.z;if(fx*fx+fz*fz>1e-4)CAM.yaw=Math.atan2(-fx,-fz);}
+// ---------- the ride's map: the garage loader's little Loop, the stations where they stand on it, your train, the way you came ----------
+const LUI={el:null,fill:null,dot:null,st:[],status:null,t:0},L_SHORT=['State','Clark','Randolph','Adams','LaSalle','Quincy'];
+const L_ORDER=[1,0,2,3,4,5];// the stations clockwise from the north-west corner (keys 1 to 6 while you ride)
+// a point of the Loop on the little map: each side of the loop scaled onto its side of the map's rounded rectangle, the corners
+// onto its corners (north up)
+function lMapXY(x,z){const X0=-330,X1=210,Z0=-330,Z1=370,r=L_R,m0=80,m1=480,n0=30,n1=130,mr=14;
+  const cx=clamp(x,X0+r,X1-r),cz=clamp(z,Z0+r,Z1-r);
+  if(cx!==x&&cz!==z){const a=Math.atan2(z-cz,x-cx);return[(cx===X0+r?m0+mr:m1-mr)+Math.cos(a)*mr,(cz===Z0+r?n0+mr:n1-mr)+Math.sin(a)*mr];}
+  const sx=m0+mr+(cx-X0-r)/(X1-X0-2*r)*(m1-m0-2*mr),sy=n0+mr+(cz-Z0-r)/(Z1-Z0-2*r)*(n1-n0-2*mr),dN=Math.abs(z-Z0),dS=Math.abs(z-Z1),dW=Math.abs(x-X0),dE=Math.abs(x-X1),m=Math.min(dN,dS,dW,dE);
+  return m===dN?[sx,n0]:m===dS?[sx,n1]:m===dW?[m0,sy]:[m1,sy];}
+function lUI(){if(LUI.el)return;const ns='http://www.w3.org/2000/svg',w=document.createElement('div');w.id='lride';
+  w.innerHTML='<svg id="lroute" viewBox="0 0 560 170" role="group" aria-label="The Loop: pick a station to ride to"><rect class="track" x="80" y="30" width="400" height="100" rx="14"/><path class="fill" d=""/><g class="stns"></g><circle class="train" r="7" cx="0" cy="0"/></svg><div class="lrStatus"></div><div class="lrHint"></div><button class="lrOff" type="button">Get off here</button>';
+  $('game').appendChild(w);const f=document.createElement('div');f.id='lfade';document.body.appendChild(f);
+  Object.assign(LUI,{el:w,fill:w.querySelector('.fill'),dot:w.querySelector('.train'),status:w.querySelector('.lrStatus')});const g=w.querySelector('.stns');
+  L_STATIONS.forEach((st,i)=>{const q=stationPos(st),[x,y]=lMapXY(q.x,q.z),s=st.side,e=document.createElementNS(ns,'g');e.setAttribute('class','lst');e.setAttribute('tabindex','0');e.setAttribute('role','button');e.setAttribute('aria-label','Ride to '+st.n);
+    const c=(cls,r)=>{const o=document.createElementNS(ns,'circle');o.setAttribute('class',cls);o.setAttribute('cx',x);o.setAttribute('cy',y);o.setAttribute('r',r);return o;};
+    const t=document.createElementNS(ns,'text');t.setAttribute('x',s===1?x+14:s===3?x-14:x);t.setAttribute('y',s===0?y-13:s===2?y+24:y+4);t.setAttribute('text-anchor',s===1?'start':s===3?'end':'middle');t.textContent=L_SHORT[i];
+    e.append(c('hit',17),c('dot',6),t);e.addEventListener('click',()=>lFastTravel(i));e.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ev.stopPropagation();lFastTravel(i);}});g.appendChild(e);LUI.st.push(e);});
+  w.querySelector('.lrOff').addEventListener('click',()=>{LRIDE.offReq=true;});
+  w.querySelector('.lrHint').innerHTML=STATE.touch?'Tap a station to ride straight there':'Click a station to ride straight there · <kbd>E</kbd> gets off at a stop · <kbd>C</kbd> another view';}
+function lRideShow(on){lUI();LUI.el.classList.toggle('on',on);document.body.classList.toggle('lriding',on);if(on){LUI.t=0;lRideUI(0);}}
+// the map, a few times a second: the way you have come since boarding (the loader's fill, going round), the train, the stations
+// passed and the one you stand at, and the next stop
+function lRideUI(dt){const R=LRIDE,T=R.T;LUI.t-=dt;if(LUI.t>0||!T)return;LUI.t=.12;const len=T.path.len;
+  let d='';if(R.dist>.5){const n=Math.max(2,Math.ceil(R.dist/6));for(let k=0;k<=n;k++){samplePath(T.path,R.startS+T.dir*R.dist*k/n,_lp);const [x,y]=lMapXY(_lp.x,_lp.z);d+=(k?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);}}
+  LUI.fill.setAttribute('d',d);samplePath(T.path,T.s-T.dir*L_CAR_GAP*1.5,_lp);const [tx,ty]=lMapXY(_lp.x,_lp.z);LUI.dot.setAttribute('cx',tx.toFixed(1));LUI.dot.setAttribute('cy',ty.toFixed(1));
+  const here=T.dwell>0?T.last:-1;LUI.st.forEach((e,i)=>{e.classList.toggle('here',i===here);e.classList.toggle('on',((T.stops[i]-R.startS)*T.dir%len+len)%len<=R.dist+.5);});
+  LUI.el.classList.toggle('stop',here>=0);LUI.status.textContent=here>=0?L_STATIONS[here].n:T.next>=0?'Next stop · '+L_STATIONS[T.next].n:'';}
+// what the prompt says on a platform with no train in: when the next one is due
+function lWaitMsg(p){let t=1e9;for(const T of LTRAINS)if(T.track===p.track)t=Math.min(t,lEta(T,p.i));t=Math.round(t);
+  return(t<6?'Train coming in':'Next train in '+Math.floor(t/60)+':'+String(t%60).padStart(2,'0'))+' · '+(p.track===0?'Outer Loop, clockwise':'Inner Loop, counterclockwise');}
 // ================= RIVER BOATS =================
 const BOATS=[];
 function buildBoat(kind){return buildGroup(()=>{const hull=(L,W,H,col)=>{const s=new THREE.Shape();s.moveTo(-W/2,0);s.lineTo(-W/2,L*.3);s.quadraticCurveTo(-W/2,L*.5,0,L*.55);s.quadraticCurveTo(W/2,L*.5,W/2,L*.3);s.lineTo(W/2,-L*.45);s.quadraticCurveTo(0,-L*.52,-W/2,-L*.45);s.lineTo(-W/2,0);
@@ -3450,7 +3763,7 @@ function pedsUpdate(dt,px,pz,simT,cam){const Q=QUAL[quality];let walkers=0;
    else if(p.mode==='special'){if(p.cop){const ph=sigPhase(SIGNALS.find(s=>s.x===p.home[0]&&s.z===p.home[1]),simT);const ty=ph.ns==='g'?0:Math.PI/2;h.yaw+=angDiff(h.yaw,ty)*Math.min(1,dt*2);}
     if(p.home){const dx=p.home[0]-h.pos.x,dz=p.home[1]-h.pos.z;if(dx*dx+dz*dz>.04&&!p.cop&&h.state!=='sit'){h.pos.x+=dx*dt;h.pos.z+=dz*dt;}}if(h.state==='shake'){p.timer-=dt;if(p.timer<=0)h.state='vendor';}}
    // separation & world collision
-   if(p.mode!=='special'&&p.mode!=='down'){const g=_v3.set(h.pos.x,0,h.pos.z);collideCircle(g,.28,h.pos.y,1.7);h.pos.x=g.x;h.pos.z=g.z;const gy=groundAt(h.pos.x,h.pos.z);
+   if(p.mode!=='special'&&p.mode!=='down'){const g=_v3.set(h.pos.x,0,h.pos.z);collideCircle(g,.28,h.pos.y,1.7);h.pos.x=g.x;h.pos.z=g.z;const gy=groundAt(h.pos.x,h.pos.z,h.pos.y+.6);
     if(gy<h.pos.y-1.5&&isWater(h.pos.x,h.pos.z)){knockDown(h,Math.sin(h.yaw)*2,0,Math.cos(h.yaw)*2);p.mode='down';p.timer=30;}else h.pos.y+=(gy-h.pos.y)*Math.min(1,dt*15);}}
   // cheap pairwise separation for walkers in view range
   for(let i=0;i<NEAR_P.length;i++){const a=NEAR_P[i];if(!a.ped||a.ragdoll||a.attached)continue;for(let j=i+1;j<NEAR_P.length;j++){const b=NEAR_P[j];if(!b.ped||b.ragdoll||b.attached)continue;const dx=b.pos.x-a.pos.x,dz=b.pos.z-a.pos.z,d2=dx*dx+dz*dz;
@@ -3845,7 +4158,7 @@ function lockPointer(){if(STATE.noLock||!canvasEl.requestPointerLock)return;try{
 const PLAYER={h:null,car:null,mount:null,vel:new THREE.Vector3(),onGround:true,swim:false,down:0,punchT:0,climb:0};
 const CAM={yaw:Math.PI,pitch:.12,dist:4.2,shake:0,idle:0,presets:[1,1.45,.78],pi:0,pos:new THREE.Vector3(),look:new THREE.Vector3(),lastCar:null,tgt:new THREE.Vector3(),lastMount:null};
 function initPlayer(){const h=new Human(LOOK_KIND.player[0],1.0);h.scale=1;h.group.scale.setScalar(1);PLAYER.h=h;scene.add(h.group);h.place(126.5,CURB,-60,Math.PI);CAM.yaw=Math.PI;}
-function nearestVehicle(p,maxD){let best=null,bd=maxD;for(const v of VEHICLES){if(v.dead||v.mode==='tram'||v.pos.y<WATER_Y-2)continue;const d=Math.hypot(v.pos.x-p.x,v.pos.z-p.z)-Math.min(v.hw,v.hl)*.6;if(d<bd){bd=d;best=v;}}return best;}
+function nearestVehicle(p,maxD){let best=null,bd=maxD;for(const v of VEHICLES){if(v.dead||v.mode==='tram'||v.pos.y<WATER_Y-2||Math.abs(v.pos.y-p.y)>2.6)continue;const d=Math.hypot(v.pos.x-p.x,v.pos.z-p.z)-Math.min(v.hw,v.hl)*.6;if(d<bd){bd=d;best=v;}}return best;}
 function enterVehicle(v){const P=PLAYER,h=P.h;if(v.driver&&v.driver!==h){const d=v.driver,dp=d.ped;detachFromVehicle(d,v);v.driver=null;if(dp){dp.inCar=null;if(v.wagon||chance(.4)){knockDown(d,Math.cos(v.yaw)*2.5,2,-Math.sin(v.yaw)*2.5);dp.mode='down';dp.timer=4;}else{dp.mode='flee';dp.panic=6;dp.fleeFrom=[v.pos.x,v.pos.z];}
     setTimeout(()=>bark(d,pick(['Hey! That\'s my automobile!','Thief! Stop, thief!','Police! Police!','You lousy crook!'])),400);panicAround(v.pos.x,v.pos.z,12);}}
   if(v.pass){const q=v.pass;detachFromVehicle(q.h,v);q.inCar=null;q.mode='flee';q.panic=5;q.fleeFrom=[v.pos.x,v.pos.z];v.pass=null;}
@@ -3855,7 +4168,10 @@ function exitVehicle(){const P=PLAYER,v=P.car;if(!v)return;detachFromVehicle(P.h
 function vLp(v){return v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);}
 // set an overturned car back on its wheels (R key or the on-screen button)
 function rightCar(){const v=PLAYER.car;if(!v||v.speed()>2.5)return;v.p=v.q=v.pv=v.qv=0;v.flip=0;v.flipT=0;v.flipRest=false;v.pos.y=groundAt(v.pos.x,v.pos.z)+.3;v.vel.set(0,0,0);v.r=0;$('rightBtn').style.display='none';}
-function playerUpdate(dt){const P=PLAYER,h=P.h;if(rideUpdate(dt))return;
+function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE.on)lRideUpdate(dt);return;}
+  // E on an L platform with a train standing at it: board
+  if(PRESS.KeyE&&!P.car&&!P.mount&&!h.ragdoll&&!P.swim){const b=lBoardable(h.pos);if(b&&b.T){delete PRESS.KeyE;lBoard(b.T);return;}}
+  if(rideUpdate(dt))return;
   if(PRESS.KeyU&&!P.car&&!h.ragdoll&&!P.swim){const hv=nearestHitched(h.pos,2.6);if(hv)untieHorse(hv);}
   const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
   if(PRESS.KeyE){if(P.car){if(P.car.speed()<6)exitVehicle();}else if(!h.ragdoll&&!P.swim){const v=nearestVehicle(h.pos,3.2);if(v)enterVehicle(v);}}
@@ -3915,7 +4231,7 @@ class Mount{
  // steer toward a pace and heading (riders' hands; the rival's race line)
  drive(dt,target,steer){const acc=target>this.speed?2.6:3.5;this.speed+=clamp(target-this.speed,-acc*dt,acc*dt);const tr=-clamp(steer,-1,1)*lerp(1.8,.75,clamp(this.speed/11,0,1));this.turn+=(tr-this.turn)*(1-Math.exp(-dt*6));}
  remove(){if(this.rider)dismountHorse(this,true);this.h.group.removeFromParent();this.h.dispose();const i=MOUNTS.indexOf(this);if(i>=0)MOUNTS.splice(i,1);this.dead=true;}}
-function nearestMount(p,maxD){let best=null,bd=maxD;for(const m of MOUNTS){if(m.rider||m.down||m.ai||m.dead)continue;const d=Math.hypot(m.x-p.x,m.z-p.z);if(d<bd){bd=d;best=m;}}return best;}
+function nearestMount(p,maxD){let best=null,bd=maxD;for(const m of MOUNTS){if(m.rider||m.down||m.ai||m.dead||Math.abs(groundAt(m.x,m.z)-p.y)>2.6)continue;const d=Math.hypot(m.x-p.x,m.z-p.z);if(d<bd){bd=d;best=m;}}return best;}
 function blendFrom(h){h.from=h.bones.map(b=>b.quaternion.clone());h.fromHip=h.bones[1].position.clone();h.blend=1;}
 // swing up from the near (left) side, settle into the saddle
 function mountHorse(m,h){m.rider=h;h.mount=m;m.wantOff=false;m.speed=0;m.turn=0;m.mountT=0;m.from={x:h.pos.x,y:h.pos.y,z:h.pos.z,yaw:h.yaw};blendFrom(h);h.state='ride';h.rideS={acc:0,sp:0,look:0};
@@ -3941,7 +4257,7 @@ function rideUpdate(dt){const P=PLAYER,h=P.h,m=P.mount;
   if(m.wantOff&&m.speed<.3&&m.jumpT<0){dismountHorse(m);return true;}
   m.move(dt);m.sync(dt);seatRider(m,h,dt);P.vel.set(Math.sin(m.yaw)*m.speed,0,Math.cos(m.yaw)*m.speed);P.onGround=true;return true;}
 // ---------- untie a carriage horse ----------
-function nearestHitched(p,maxD){let best=null,bd=maxD;for(const v of NEAR_V){if(!v.wagon||!v.horse||v.dead||v.horse.down||v===PLAYER.car)continue;v.horse.group.getWorldPosition(_v3);const d=Math.hypot(_v3.x-p.x,_v3.z-p.z);if(d<bd){bd=d;best=v;}}return best;}
+function nearestHitched(p,maxD){let best=null,bd=maxD;for(const v of NEAR_V){if(!v.wagon||!v.horse||v.dead||v.horse.down||v===PLAYER.car)continue;v.horse.group.getWorldPosition(_v3);if(Math.abs(_v3.y-p.y)>2.6)continue;const d=Math.hypot(_v3.x-p.x,_v3.z-p.z);if(d<bd){bd=d;best=v;}}return best;}
 // the harness and shafts stay with the wagon; the horse walks free in its halter, ready to ride bareback
 function untieHorse(v){const H=v.horse;H.group.getWorldPosition(_v3);const x=_v3.x,z=_v3.z,yaw=v.yaw,coat=H.coat;
   H.dispose();v.horse=null;v.unhitched=true;if(v.mode==='ai'||v.mode==='dyn'){v.mode='parked';v.vel.set(0,0,0);v.aiSpeed=0;v.r=0;}
@@ -4120,7 +4436,7 @@ function updateCamera(dt,cam){const P=PLAYER,h=P.h;const md=INVERT?-1:1;CAM.idle
     target=_ct.set(v.pos.x,v.pos.y+lerp(1.6,1.42,wide),v.pos.z);dist=(v.wagon?lerp(9.5,7.4,wide):lerp(6.8,4.7,wide)+Math.min(lerp(5,1.7,wide),sp*lerp(.12,.055,wide)))*zoom;k=Math.min(1,dt*9);}
    else{if(h.ragdoll){target=_ct.set(h.ragdoll.p[0],h.ragdoll.p[1]+.6,h.ragdoll.p[2]);}else{if(h.speed>.5&&CAM.idle>1.2)follow(h.yaw);target=_ct.set(h.pos.x,h.pos.y+(P.swim?.3:1.55),h.pos.z);}dist=4.1*zoom;k=Math.min(1,dt*14);}}
   const cp=Math.cos(CAM.pitch),dir=_v1.set(Math.sin(CAM.yaw)*cp,Math.sin(CAM.pitch),Math.cos(CAM.yaw)*cp);const side=P.car||P.mount?0:.45;const tgt=_v2.copy(target).addScaledVector(_v3.set(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw)),-side);
-  let d=rayCols(tgt,dir,dist+.3)-.3;d=Math.max(.6,Math.min(dist,d));_cp.copy(tgt).addScaledVector(dir,d);const gy=groundAt(_cp.x,_cp.z,_cp.y);if(_cp.y<gy+.3&&!isWater(_cp.x,_cp.z))_cp.y=gy+.3;if(isWater(_cp.x,_cp.z)&&_cp.y<WATER_Y+.4)_cp.y=WATER_Y+.4;
+  let d=rayCols(tgt,dir,dist+.3)-.3;d=Math.max(.6,Math.min(dist,d));_cp.copy(tgt).addScaledVector(dir,d);const gy=groundAt(_cp.x,_cp.z,_cp.y);if(_cp.y<gy+.3&&!isWater(_cp.x,_cp.z))_cp.y=gy+.3;if(!P.car&&!P.mount){const rf=lRoofOver(h.pos.x,h.pos.z,h.pos.y);if(rf!==null&&_cp.y>rf-.3)_cp.y=Math.max(gy+.3,rf-.3);}if(isWater(_cp.x,_cp.z)&&_cp.y<WATER_Y+.4)_cp.y=WATER_Y+.4;
   if(CAM.lastCar!==P.car){CAM.pos.copy(_cp);CAM.lastCar=P.car;}CAM.pos.lerp(_cp,k);CAM.look.lerp(tgt,Math.min(1,dt*16));
   cam.position.copy(CAM.pos);if(CAM.shake>0){CAM.shake=Math.max(0,CAM.shake-dt*2);cam.position.x+=(rand()-.5)*CAM.shake*.3;cam.position.y+=(rand()-.5)*CAM.shake*.3;}cam.lookAt(CAM.look);
   if(P.car){const sp=P.car.speed(),wide=clamp((cam.aspect-1)/.7,0,1);cam.fov+=(lerp(62,58,wide)+Math.min(lerp(14,7,wide),sp*.3)-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}else if(Math.abs(cam.fov-62)>.1){cam.fov+=(62-cam.fov)*Math.min(1,dt*2);cam.updateProjectionMatrix();}}
@@ -4318,6 +4634,7 @@ function updateHUD(dt,fps){toastT-=dt;if(toastT<0)$('toast').style.opacity=Math.
    if(STATE.showFps)$('fps').textContent=fps+' fps';
    const pr=$('prompt');let msg='',hv=null;if(!P.car&&!P.mount&&!P.h.ragdoll&&!P.swim){const mm=nearestMount(P.h.pos,2.8),v=nearestVehicle(P.h.pos,3.2);hv=nearestHitched(P.h.pos,2.6);
     if(mm)msg=`<kbd>E</kbd>Ride the ${mm.name}`;else if(v)msg=`<kbd>E</kbd>${v.driver?'Commandeer':'Take'} the ${v.md.name}`;if(hv)msg+=(msg?' &nbsp; ':'')+'<kbd>U</kbd>Untie the horse';}{const tu=$('tUntie');if(tu)tu.style.display=hv?'':'none';}if(P.swim)msg='<kbd>Space</kbd>Climb out at a ladder or low wall';
+   if(!msg&&!LRIDE.on&&!P.car&&!P.mount&&!P.h.ragdoll){const b=lBoardable(P.h.pos);if(b)msg=b.T?'<kbd>E</kbd>Board the L \u00b7 '+(b.T.track===0?'Outer Loop, clockwise':'Inner Loop, counterclockwise'):lWaitMsg(b.p);}
    if(P.h.ragdoll&&!P.car)msg='';if(AER.on)msg='';pr.innerHTML=msg;pr.style.display=msg?'block':'none';}
   // the simple speed readout
   const v=P.car,sp=$('speed');if(v&&!AER.on){sp.style.display='block';const vL=v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);$('mph').textContent=Math.round(Math.abs(vL)*2.23694);
@@ -4372,6 +4689,7 @@ function landH(x,z){if(x>=SHORE.slope&&x<LAKE_X)return shoreH(x,z);if(inYard(x,z
 // special ground heights; y (optional) disambiguates bridge decks from the cut beneath them
 function terrainH(x,z,y){
   if(x>=SHORE.slope){if(x<LAKE_X&&!inRiver(x,z))return shoreH(x,z);return null;}
+  if(y!==undefined){const lt=lTerrain(x,z,y);if(lt!==null)return lt;}
   if(x>=KICK.x0&&x<=KICK.x1&&z>=KICK.z0&&z<=KICK.z1)return CURB+(KICK.z1-z)/(KICK.z1-KICK.z0)*(KICK.top-CURB);
   if(inYard(x,z)&&!inRiver(x,z)){
     if(Math.abs(x-FLATCAR.x)<1.45&&z<=FLATCAR.z0&&z>=FLATCAR.z1)return YARD_Y+.25+(FLATCAR.z0-z)/(FLATCAR.z0-FLATCAR.z1)*FLATCAR.rise;
@@ -4683,7 +5001,7 @@ function garageOwnMaterials(root){const map=new Map();
 // (garageLight is gone: every car in the showroom takes the room's light as it is, as in the ChatGPT build)
 // fade the showroom up from black: the cover lifts while the spotlight, fill and rim lights come up together
 function revealGarage(ms=1700){return new Promise(res=>{GAR.fade={t0:performance.now(),ms,done:res};const b=$('boot');b.classList.add('gone');setTimeout(()=>{b.style.display='none';},ms+300);});}
-function showGarage(){endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';$('rightBtn').style.display='none';
+function showGarage(){lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';$('rightBtn').style.display='none';
   STATE.skipPause=true;if(document.pointerLockElement&&document.exitPointerLock)document.exitPointerLock();$('garageUI').style.display='block';chooseSkin(GAR.sel);
   for(let i=0;i<GAR.cars.length;i++)if(GAR.cars[i])GAR.cars[i].root.position.x=(i-GAR.sel)*3.35;GAR.cam.aspect=innerWidth/innerHeight;GAR.cam.updateProjectionMatrix();}
 function garageFrame(dt){for(let i=0;i<GAR.cars.length;i++){const c=GAR.cars[i];if(!c)continue;c.root.position.x=lerp(c.root.position.x,(i-GAR.sel)*3.35+GAR.offset,Math.min(1,dt*7));}// (lit only by the room, as in the ChatGPT build)
@@ -4966,12 +5284,12 @@ const dropLand=(x,y,z)=>{const f=fountainLand(x,y,z);if(f!==null)return f;if(isW
 const sparkLand=(x,y,z)=>groundAt(x,z);
 function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,(now-last)/1000));last=now;if(GAR.on){garageFrame(dt);return;}if(!STATE.started)return;
   if(STATE.paused){for(const k in PRESS)delete PRESS[k];MOUSE_DX=MOUSE_DY=0;if(STATE.touch)updateStickUI(0);return;}
-  frameNo++;simT+=dt;if(PRESS.KeyM&&!EDCAM.on)toggleAerial();fpsAcc+=dt;fpsN++;if(fpsAcc>=.5){fpsShow=Math.round(fpsN/fpsAcc);fpsAcc=0;fpsN=0;autoQuality();}
+  frameNo++;simT+=dt;if(PRESS.KeyM&&!EDCAM.on&&!LRIDE.on)toggleAerial();fpsAcc+=dt;fpsN++;if(fpsAcc>=.5){fpsShow=Math.round(fpsN/fpsAcc);fpsAcc=0;fpsN=0;autoQuality();}
   const P=PLAYER;const focus=P.car?P.car.pos:(P.h.ragdoll?_v1.set(P.h.ragdoll.p[0],0,P.h.ragdoll.p[2]):P.h.pos);const px=focus.x,pz=focus.z;
   // proximity lists
   NEAR_V.length=0;for(const v of VEHICLES){if(v.dead)continue;v.dist=Math.hypot(v.pos.x-px,v.pos.z-pz);if(v.dist<95)NEAR_V.push(v);}
   if((frameNo&7)===0)updateCabLods();
-  NEAR_P.length=0;for(const p of PEDS){const h=p.h;if(h.attached||h.ragdoll||p.inCar)continue;if(Math.abs(h.pos.x-px)<48&&Math.abs(h.pos.z-pz)<48)NEAR_P.push(h);}if(!P.car&&!P.h.ragdoll)NEAR_P.push(P.h);
+  NEAR_P.length=0;for(const p of PEDS){const h=p.h;if(h.attached||h.ragdoll||p.inCar)continue;if(Math.abs(h.pos.x-px)<48&&Math.abs(h.pos.z-pz)<48)NEAR_P.push(h);}if(!P.car&&!P.h.ragdoll&&!LRIDE.on)NEAR_P.push(P.h);
   // simulation
   if(!AER.on&&!EDCAM.on)playerUpdate(dt);updateGame(dt);updateMounts(dt,px,pz);updateTraffic(dt,px,pz,simT);updateTrams(dt,px,pz);updateLTrains(dt,px,pz);updateBoats(dt,px,pz);
   updateBridge(dt);
@@ -4994,7 +5312,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   // time of day, city
   const S=updateSky(dt,px,pz,camera);updateFountain(dt,px,pz,S.night);updateWorld2(dt,px,pz,S);DROPS.update(dt,dropLand);PUFFS.update(dt);SPARKS.update(dt,sparkLand);updateShards(dt);updateSkid(dt);updateLoose(dt,px,pz);
   updateSignals(simT);updateClocks(SKY.t);UNI.time.value=simT;
-  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateHUD(dt,fpsShow);
+  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else if(LRIDE.on)lRideCamera(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateHUD(dt,fpsShow);
   // audio
   let lnear=1e9,lx=0,lz=0,lsp=0;for(const T of LTRAINS)if(T.near<lnear){lnear=T.near;lx=T.cars[1].position.x;lz=T.cars[1].position.z;lsp=T.v;}
   const riverD=Math.abs(pz-(RIV.zN+RIV.zS)/2)-(RIV.zS-RIV.zN)/2,lakeD=LAKE_X-px;let moving=0;for(const v of NEAR_V)if(v.dist<60&&v!==P.car&&(v.aiSpeed>2||(v.speed&&v.speed()>2)))moving++;
