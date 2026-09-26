@@ -1608,6 +1608,29 @@ class WalkBlend{
       else{for(let j=0;j<NJ;j++)this.J[j].copy(this.JI[j]);for(let q=0;q<TORSO_N;q++)this.R[q].copy(IR[q]);}}
     else if(w>0)for(let q=0;q<TORSO_N;q++)this.R[q].copy(RW[q]);
     return Math.min(1,w+wi);}}
+// ---------- hands ----------
+// Hands a size below MakeHuman's defaults (its default man's hand is 20 cm, large for his height; its woman's is about right): the
+// "Hand size" slider starts from HAND_BASE [female, male] by the look's gender (the Developer slider still moves them from there)
+const HAND_BASE=[-0.15,-0.5];
+function withHandBase(s){const g=clamp(s.macro&&s.macro.gender!=null?s.macro.gender:s.sex==='f'?0:1,0,1),sl=Object.assign({},s.sliders);
+  sl.hands=clamp((sl.hands||0)+HAND_BASE[0]+(HAND_BASE[1]-HAND_BASE[0])*g,-1,1);return Object.assign({},s,{sliders:sl});}
+// A hand at rest, added to MakeHuman's nearly flat, spread rest hand: [finger, bend at its three joints (radians), share of the way
+// it closes toward the middle finger (the thumb toward the index)]. The bend grows from the index to the little finger and is
+// least at the fingertip joint (bent most there, and spread, a hand looks like a claw).
+const RELAXED_HAND=[['Thumb',.08,.12,.1,.25],['Index',.24,.42,.14,.45],['Middle',.3,.49,.17,0],['Ring',.37,.54,.21,.45],['Pinky',.44,.59,.24,.45]];
+// the finger bones' local turns (bones bind unrotated, so a turn is about axes of the bind skeleton). A finger's first bone turns
+// toward the middle finger first (the thumb toward the index), then each joint bends: the four fingers toward the palm about their
+// knuckle axes; the thumb, which bends across the palm, about its own hinge (the axis its rest pose already bends about)
+function relaxedHand(byName,index,n){const curl=new Array(n).fill(null);
+  for(const side of ['Left','Right']){const P=b=>new THREE.Vector3(...byName[side+'Hand'+b].pos),dir=(f,k)=>(k<3?P(f+(k+1)):new THREE.Vector3(...byName[side+'Hand'+f+3].tail)).sub(P(f+k)).normalize();
+    const palm=new THREE.Vector3().crossVectors(P('Index1').sub(P('Pinky1')),dir('Middle',1)).normalize();if(palm.y>0)palm.negate();
+    for(const [f,b1,b2,b3,close] of RELAXED_HAND){const d1=dir(f,1),to=dir(f==='Thumb'?'Index':'Middle',1),ax=new THREE.Vector3().crossVectors(d1,to),qc=new THREE.Quaternion();
+      if(close>0&&ax.lengthSq()>1e-8)qc.setFromAxisAngle(ax.normalize(),d1.angleTo(to)*close);
+      [b1,b2,b3].forEach((a,j)=>{const i=index[side+'Hand'+f+(j+1)];if(i==null)return;let hinge;
+        if(f==='Thumb'){const k=Math.min(j+1,2);hinge=new THREE.Vector3().crossVectors(dir(f,k),dir(f,k+1)).normalize();if(!j)hinge.applyQuaternion(qc);}
+        else hinge=new THREE.Vector3().crossVectors(j?dir(f,j+1):d1.clone().applyQuaternion(qc),palm).normalize();
+        const q=new THREE.Quaternion().setFromAxisAngle(hinge,a);curl[i]=j?q:q.multiply(qc);});}}
+  return curl;}
 // ---------- looks ----------
 class CrowdLib{
   static async create(chardata,walkdata){const lib=await root.CharLib.load(chardata);const cf=await root.CharFactory.create(lib);return new CrowdLib(lib,cf,walkdata);}
@@ -1615,20 +1638,17 @@ class CrowdLib{
     this.index=Object.fromEntries(this.names.map((n,i)=>[n,i]));this.frameOf=this.names.map(n=>FRAMES.findIndex(f=>f[0]===n));}
   // settings: charcore settings {sex, macro, sliders, height, outfit, shoes, hat, hair, skin, hero, colors, skinTint?}
   // lods: [[libLod, fromDistance], ...]
-  makeLook(s,lods){const lib=this.lib,cf=this.cf;const R=lib.morph(s);const sk=lib.skeleton(s,R);
-    const geos=lods.map(([l])=>{const g=lib.build(s,l,R);const geo=new THREE.BufferGeometry();
+  makeLook(s,lods){const lib=this.lib,cf=this.cf;const m=withHandBase(s);const R=lib.morph(m);const sk=lib.skeleton(m,R);
+    const geos=lods.map(([l])=>{const g=lib.build(m,l,R);const geo=new THREE.BufferGeometry();
       geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));geo.setAttribute('normal',new THREE.BufferAttribute(g.nrm,3));geo.setAttribute('uv',new THREE.BufferAttribute(g.uv,2));
       geo.setAttribute('zone',new THREE.BufferAttribute(g.zone,1));geo.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(g.si,4));geo.setAttribute('skinWeight',new THREE.BufferAttribute(g.sw,4));
       geo.setIndex(new THREE.BufferAttribute(g.index,1));const h=s.height||1;geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0.9*h,0),1.3*h);return geo;});
     const map=s.hero?cf.heroAtlas(s.sex==='f'?4:0):cf.npcAtlas;const ZN=root.CHAR_ZONE_NAMES;const palette=ZN.map(z=>(s.colors&&s.colors[z])?hexToLinear(s.colors[z]):new THREE.Color(1,0,1));
     const tint=hexToLinear(s.skinTint||'#ffffff');const material=cf.makeMaterial(map,palette,tint);const depth=cf.depthMaterial(map);
-    // rest frames + finger curl
+    // rest frames + the fingers' rest pose
     const byName=Object.fromEntries(sk.map(b=>[b.name,b]));const RJ=REST_SRC.map(([n,k])=>new THREE.Vector3(...byName[n][k]));const S=makeSides();computeSides(RJ,S);
     const restInv=FRAMES.map(([,a,b,side])=>frameQ(new THREE.Quaternion(),RJ,a,b,S[side],S[side+'F']).invert());
-    const curl=this.names.map(()=>null);for(const side of ['Left','Right']){const P=n=>new THREE.Vector3(...byName[side+n].pos);
-      const across=P('HandIndex1').sub(P('HandPinky1')).normalize(),fd=P('HandMiddle2').sub(P('HandMiddle1')).normalize();const palm=new THREE.Vector3().crossVectors(across,fd).normalize();if(palm.y>0)palm.negate();
-      const axis=new THREE.Vector3().crossVectors(fd,palm).normalize();
-      for(const f of ['Thumb','Index','Middle','Ring','Pinky'])for(let k=1;k<=3;k++){const i=this.index[side+'Hand'+f+k];if(i==null)continue;curl[i]=new THREE.Quaternion().setFromAxisAngle(axis,f==='Thumb'?0.18:0.32+0.06*k);}}
+    const curl=relaxedHand(byName,this.index,this.names.length);
     return {s,sk,geos,lods:lods.map(l=>l[1]),material,depth,restInv,curl,hipsY:byName.Hips.pos[1],height:s.height||1,map,palette,tint,fadePool:[]};}
   // LOD cross-fade twins of a look's material (same palette/tint objects, own fade uniform), pooled per look
   fadeMat(look){return look.fadePool.pop()||this.cf.makeMaterial(look.map,look.palette,look.tint);}
@@ -1667,7 +1687,7 @@ class LookInstance{
     B[0].position.copy(pelvis);}
   dispose(){if(this.fadeFrom>=0)this.fadeEnd();if(this.group.parent)this.group.parent.remove(this.group);}
 }
-root.CrowdLib=CrowdLib;root.LookInstance=LookInstance;root.CROWD_NJ=NJ;root.CROWD_SRC_HIP=SRC_HIP;root.CROWD_TORSO_N=TORSO_N;root.torsoRestInv=torsoRestInv;root.CROWD_FRAMES=FRAMES;
+root.CrowdLib=CrowdLib;root.LookInstance=LookInstance;root.CROWD_NJ=NJ;root.CROWD_SRC_HIP=SRC_HIP;root.CROWD_TORSO_N=TORSO_N;root.torsoRestInv=torsoRestInv;root.CROWD_FRAMES=FRAMES;root.relaxedHand=relaxedHand;root.withHandBase=withHandBase;
 })(ENGINE);
 // Procedural horse animation: walk / trot / canter / gallop with real footfall sequences and planted hooves
 // (2-DOF sagittal leg IK: whole-limb swing + joint fold), body bounce/pitch from leg support, turning bend/lean,
