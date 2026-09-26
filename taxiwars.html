@@ -87,8 +87,13 @@ body{height:100%;margin:0;background:var(--coal);color:var(--ink);overflow:hidde
 #raceMessage{position:absolute;top:28%;width:100%;text-align:center;font:500 48px Georgia;color:#ffebbd;text-shadow:0 3px 15px #000}#raceMessage small{display:block;font:12px system-ui;margin-top:12px;letter-spacing:.10em}
 #impactFlash{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 70px #bd572a;opacity:0;transition:opacity .25s;z-index:9}
 #fareBtn{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(14px + env(safe-area-inset-top,0px));z-index:22;background:#efc53e;color:#242016;border:2px solid #ffe18a;font:800 13px system-ui,sans-serif;padding:12px 18px;border-radius:30px;box-shadow:0 3px 15px #0007;touch-action:manipulation;display:none;cursor:pointer}
-#tbtns{position:absolute;right:3%;bottom:12%;display:grid;grid-template-columns:repeat(2,64px);gap:10px;pointer-events:auto}
-#tbtns button{width:64px;height:64px;border-radius:50%;border:2px solid rgba(201,161,74,.7);background:rgba(27,23,18,.55);color:var(--enamel);font-family:Limelight,Georgia,serif;font-size:.8rem}
+/* no buttons: a tap leaves a soft ring; tapping someone near you opens a little card over their head */
+.gtap{position:fixed;width:34px;height:34px;margin:-17px 0 0 -17px;border:2px solid rgba(244,236,214,.75);border-radius:50%;pointer-events:none;z-index:25;animation:gtap .5s ease-out forwards}
+@keyframes gtap{from{transform:scale(.35);opacity:.95}to{transform:scale(1.35);opacity:0}}
+#pmenu{position:absolute;left:50%;top:50%;z-index:23;display:none;flex-direction:column;gap:6px;transform:translate(-50%,calc(-100% - 10px));min-width:180px;padding:8px 8px 9px;background:var(--panel);border:1px solid var(--brass);border-radius:12px;box-shadow:0 4px 16px #0009;pointer-events:auto}
+#pmenu .pmWho{font:400 .78rem Limelight,Georgia,serif;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);text-align:center}
+#pmenu button{min-height:44px;padding:.55rem .8rem;font:.95rem "Special Elite","Courier New",Courier,monospace;text-align:left;color:var(--enamel);background:rgba(42,36,27,.92);border:1px solid rgba(201,161,74,.45);border-radius:8px;cursor:pointer;touch-action:manipulation}
+#pmenu button:hover,#pmenu button:focus-visible{border-color:#e0bd66;outline:none}
 body.touch #radar{display:none}
 body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 @media (max-width:640px){#radar{width:120px;height:120px}#street b{font-size:1.25rem}.mTime b{font-size:2.5rem}#fareBtn{padding:10px 14px}}
@@ -136,8 +141,8 @@ body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 #lride .lrOff:hover,#lride .lrOff:focus-visible{border-color:#e0bd66;outline:none}
 @keyframes lrPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.45)}}
 #lfade{position:fixed;inset:0;z-index:70;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease}
-body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!important}
-@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}}
+body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu{display:none!important}
+@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}.gtap{animation:none;opacity:.6}}
 </style>
 </head>
 <body>
@@ -157,6 +162,7 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!import
 </div>
 <div id="impactFlash"></div>
 <button id="fareBtn">Pickup fare</button>
+<div id="pmenu" role="menu" aria-label="Talk to someone"><span class="pmWho"></span><button role="menuitem" data-a="hello">Say hello</button><button role="menuitem" data-a="way">Ask the way to the L</button><button role="menuitem" data-a="shove">Shove</button></div>
 <div id="aimDot"></div>
 <div id="garageUI"><div id="garageTitle">TAXI WARS &middot; CHICAGO 1928<b>Choose your cab</b></div><div class="garageBottom"><div id="skinName">Yellow Cab</div><div id="skinDetail">327 &middot; ORIGINAL YELLOW</div><div class="garageActions"><div id="garageLoad">
   <svg id="route" viewBox="0 0 460 150" aria-label="Loading progress">
@@ -165,8 +171,7 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!import
     <g id="stations"></g>
   </svg>
   <div id="status">Lighting the showroom&hellip;</div></div><button id="raceButton" style="display:none">RACE</button><button id="freeButton" style="display:none">DRIVE</button></div></div></div>
-<div id="touch"><div id="stick"><canvas id="stickMap" width="264" height="264"></canvas><div id="knob"><span>BRAKE</span></div></div>
-  <div id="tbtns"><button data-k="KeyE">Enter</button><button data-k="Space">Jump</button><button data-k="KeyF">Punch</button><button data-k="ShiftLeft">Run</button><button data-k="KeyQ">Horn</button><button data-k="KeyS">Brake</button><button data-k="KeyU" id="tUntie" style="display:none">Untie</button></div></div>
+<div id="touch"><div id="stick"><canvas id="stickMap" width="264" height="264"></canvas><div id="knob"><span>BRAKE</span></div></div></div>
 <div id="menu"><div class="mInner">
   <div class="mTime"><b id="mClock">4:30 PM</b><span id="mDate">Tuesday, October 16, 1928</span></div>
   <div class="mList" id="mMain">
@@ -199,7 +204,8 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar{display:none!import
     <tr><td>On the L</td><td>Climb a station's stairs; E boards a train standing at the platform and gets off at a stop; C changes the view; pick a station on the little Loop (or press 1-6) to ride straight there</td></tr>
     <tr><td>T</td><td>Skip ahead one hour</td></tr>
     <tr><td>H / Esc</td><td>This menu</td></tr>
-    <tr><td>Thumb stick</td><td>In a car it becomes a BRAKE button the moment you let go: touch it to brake, push up to drive on</td></tr>
+    <tr><td>Gestures</td><td>Tap yourself to sprint; swipe up from your feet to jump; swipe round your arm to punch; tap someone near you to talk; double-tap a car, a horse or a standing L train to get in, up or aboard (from further off you hurry over). At the wheel tap your car to honk, double-tap it to get out. With the mouse: click, double-click, drag from yourself</td></tr>
+    <tr><td>Thumb stick</td><td>Your first thumb down is the stick, on either side (your character stands on the other). In a car it becomes a BRAKE button the moment you let go: touch it to brake, push up to drive on</td></tr>
    </table></details>
    <button id="mBack">Back</button>
   </div>
@@ -4125,13 +4131,15 @@ function cdebUpdate(dt){for(let i=CDEB.anim.length-1;i>=0;i--){const it=CDEB.ani
 const KEYS={},PRESS={};let MOUSE_DX=0,MOUSE_DY=0,SENS=.0022,INVERT=false;const TOUCH={x:0,y:0,active:false};
 addEventListener('keydown',e=>{if(e.repeat){KEYS[e.code]=true;return;}KEYS[e.code]=true;PRESS[e.code]=true;if(['Space','ArrowUp','ArrowDown','Tab'].includes(e.code))e.preventDefault();});
 addEventListener('keyup',e=>{KEYS[e.code]=false;});addEventListener('blur',()=>{for(const k in KEYS)KEYS[k]=false;});
-// no pointer lock: the cursor stays yours. Drag to look, click to punch; the cursor hides after 2 s of stillness over the game and returns the moment you move it
-let _md=null,_curT=0;canvasEl.addEventListener('mousedown',e=>{if(!STATE.started||GAR.on)return;_md={x:e.clientX,y:e.clientY,b:e.button};});
-addEventListener('mouseup',e=>{if(_md&&_md.b===0&&Math.hypot(e.clientX-_md.x,e.clientY-_md.y)<6&&STATE.started&&!GAR.on&&!STATE.paused)PRESS.KeyF=true;_md=null;});
+// no pointer lock: the cursor stays yours. Drag to look; click, double-click and drag from your character are the gestures (see
+// GESTURES: a click on nothing in particular throws a punch); the cursor hides after 2 s of stillness over the game and returns
+// the moment you move it
+let _curT=0;canvasEl.addEventListener('mousedown',e=>{if(!STATE.started||GAR.on||e.button!==0)return;gDown('m',e.clientX,e.clientY,gPick(e.clientX,e.clientY),true);});
+addEventListener('mouseup',e=>{if(e.button===0)gUp('m',e.clientX,e.clientY);});
 canvasEl.addEventListener('contextmenu',e=>e.preventDefault());
 function showCursor(){canvasEl.style.cursor='';clearTimeout(_curT);_curT=setTimeout(()=>{if(STATE.started&&!GAR.on&&!STATE.paused)canvasEl.style.cursor='none';},2000);}
 addEventListener('mousemove',showCursor);addEventListener('mousedown',showCursor);document.addEventListener('mouseleave',()=>{clearTimeout(_curT);canvasEl.style.cursor='';});
-addEventListener('mousemove',e=>{if(document.pointerLockElement===canvasEl||(STATE.started&&!STATE.paused&&STATE.noLock&&(e.buttons&3))){MOUSE_DX+=e.movementX||0;MOUSE_DY+=e.movementY||0;}});
+addEventListener('mousemove',e=>{const g=GEST.ptr.get('m');if(g)gMove('m',e.clientX,e.clientY);if(document.pointerLockElement===canvasEl||(STATE.started&&!STATE.paused&&STATE.noLock&&(e.buttons&3)&&!(g&&g.self&&!(e.buttons&2)))){MOUSE_DX+=e.movementX||0;MOUSE_DY+=e.movementY||0;}});
 document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvasEl&&STATE.started&&!STATE.touch&&!STATE.paused&&!STATE.skipPause)setPause(true);STATE.skipPause=false;});
 // Mobile thumb stick (from the ChatGPT build, reworked): it sits wherever your thumb last was, with the minimap underneath.
 // In a car it is a BRAKE button the moment you let go (the knob swings back to the centre as it grows to fill the ring, but a
@@ -4140,7 +4148,7 @@ document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElemen
 // under your thumb and follows it, driving on.
 function screenSteering(v){const a=Math.abs(v),dead=.07;if(a<=dead)return 0;const t=clamp((a-dead)/(1-dead),0,1);return Math.sign(v)*(t*t*(3-2*t));}
 let touchReady=false;
-const STK={el:null,knob:null,map:null,label:null,aim:null,cx:0,cy:0,R:66,id:null,lid:null,lx:0,ly:0,mode:'rest',kx:0,ky:0,grow:0,sx:0,sy:0,backT:0};
+const STK={el:null,knob:null,map:null,label:null,aim:null,cx:0,cy:0,R:66,id:null,mode:'rest',kx:0,ky:0,grow:0,sx:0,sy:0,backT:0};
 function stickPlace(x,y){STK.cx=clamp(x,STK.R+6,innerWidth-STK.R-6);STK.cy=clamp(y,STK.R+6,innerHeight-STK.R-6);STK.el.style.left=(STK.cx-STK.R)+'px';STK.el.style.top=(STK.cy-STK.R)+'px';}
 function stickDrive(x,y){let dx=x-STK.cx,dy=y-STK.cy;const l=Math.hypot(dx,dy),m=54;if(l>m){dx*=m/l;dy*=m/l;}STK.kx=dx;STK.ky=dy;const nx=dx/m,ny=dy/m;TOUCH.x=screenSteering(nx);const ay=Math.abs(ny);TOUCH.y=ay<=.07?0:Math.sign(ny)*clamp((ay-.07)/.93,0,1);TOUCH.active=true;
   STK.aim.style.display='block';STK.aim.style.left=x+'px';STK.aim.style.top=y+'px';}
@@ -4152,13 +4160,15 @@ function stickBrake(x,y){const now=performance.now(),dx=x-STK.sx,dy=y-STK.sy,d=M
 function setupTouch(){if(touchReady)return;touchReady=true;STK.el=$('stick');STK.knob=$('knob');STK.map=$('stickMap');STK.label=STK.knob.querySelector('span');STK.aim=$('aimDot');
   stickPlace(STK.R+26,innerHeight-STK.R-30);
   addEventListener('touchmove',e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){if(STK.mode==='brake')stickBrake(t.clientX,t.clientY);else stickDrive(t.clientX,t.clientY);}
-    else if(t.identifier===STK.lid){MOUSE_DX+=(t.clientX-STK.lx)*2.2;MOUSE_DY+=(t.clientY-STK.ly)*2.2;STK.lx=t.clientX;STK.ly=t.clientY;}}},{passive:false});
-  const end=e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){STK.id=null;TOUCH.x=TOUCH.y=0;TOUCH.active=false;STK.aim.style.display='none';STK.mode=PLAYER.car?(STK.mode==='brake'?'brakeIdle':'growing'):'returning';TOUCH.brake=0;}if(t.identifier===STK.lid)STK.lid=null;}};addEventListener('touchend',end);addEventListener('touchcancel',end);
-  canvasEl.addEventListener('touchstart',e=>{if(!STATE.started||GAR.on)return;for(const t of e.changedTouches){const wantStick=STK.id===null&&(PLAYER.car||t.clientX<innerWidth*.55);
-    if(wantStick){STK.id=t.identifier;stickPlace(t.clientX,t.clientY);STK.sx=t.clientX;STK.sy=t.clientY;STK.backT=0;TOUCH.x=TOUCH.y=0;TOUCH.active=true;
-      if(PLAYER.car&&(STK.mode==='brakeIdle'||STK.mode==='growing'||STK.mode==='returning')){STK.mode='brake';TOUCH.brake=1;STK.kx=STK.ky=0;}else{STK.mode='drive';TOUCH.brake=0;stickDrive(t.clientX,t.clientY);}}
-    else if(STK.lid===null){STK.lid=t.identifier;STK.lx=t.clientX;STK.ly=t.clientY;}}e.preventDefault();},{passive:false});
-  document.querySelectorAll('#tbtns button').forEach(b=>{const k=b.dataset.k;b.addEventListener('touchstart',e=>{KEYS[k]=true;PRESS[k]=true;e.preventDefault();},{passive:false});b.addEventListener('touchend',()=>{KEYS[k]=false;});});}
+    else gMove(t.identifier,t.clientX,t.clientY);}},{passive:false});
+  const end=e=>{for(const t of e.changedTouches){if(t.identifier===STK.id){STK.id=null;TOUCH.x=TOUCH.y=0;TOUCH.active=false;STK.aim.style.display='none';STK.mode=PLAYER.car?(STK.mode==='brake'?'brakeIdle':'growing'):'returning';TOUCH.brake=0;}
+    else if(e.type==='touchend')gUp(t.identifier,t.clientX,t.clientY);else gCancel(t.identifier);}};addEventListener('touchend',end);addEventListener('touchcancel',end);
+  // a finger coming down: on the stick itself it is the stick; on something you can act on, a gesture; otherwise the stick if it
+  // is free and wants it (gStickWants), else a gesture (which turns into looking round if it drags)
+  canvasEl.addEventListener('touchstart',e=>{if(!STATE.started||GAR.on)return;for(const t of e.changedTouches){const x=t.clientX,y=t.clientY,free=STK.id===null,tg=free&&Math.hypot(x-STK.cx,y-STK.cy)<STK.R+10?null:gPick(x,y);
+    if(free&&!tg&&(Math.hypot(x-STK.cx,y-STK.cy)<STK.R+10||gStickWants(x,y))){STK.id=t.identifier;stickPlace(x,y);STK.sx=x;STK.sy=y;STK.backT=0;TOUCH.x=TOUCH.y=0;TOUCH.active=true;
+      if(PLAYER.car&&(STK.mode==='brakeIdle'||STK.mode==='growing'||STK.mode==='returning')){STK.mode='brake';TOUCH.brake=1;STK.kx=STK.ky=0;}else{STK.mode='drive';TOUCH.brake=0;stickDrive(x,y);}}
+    else gDown(t.identifier,x,y,tg,false);}e.preventDefault();},{passive:false});}
 // per frame: return-to-centre, the grow into a brake button (minimap fading out underneath), and back
 function updateStickUI(dt){if(!STK.el)return;const show=STATE.started&&!GAR.on&&!STATE.paused;STK.el.style.display=show?'block':'none';if(!show)return;const inCar=!!PLAYER.car;
   if(STK.mode==='returning'){const k=Math.exp(-dt*13);STK.kx*=k;STK.ky*=k;if(Math.hypot(STK.kx,STK.ky)<.8){STK.kx=STK.ky=0;STK.mode=inCar?'growing':'rest';}}
@@ -4168,6 +4178,141 @@ function updateStickUI(dt){if(!STK.el)return;const show=STATE.started&&!GAR.on&&
   const g=STK.grow*STK.grow*(3-2*STK.grow),full=STK.R*2-6,size=48+(full-48)*g,ox=STK.kx*(1-g),oy=STK.ky*(1-g);
   STK.knob.style.width=STK.knob.style.height=size+'px';STK.knob.style.left=(STK.R-size/2+ox)+'px';STK.knob.style.top=(STK.R-size/2+oy)+'px';
   STK.label.style.opacity=String(clamp((g-.55)/.45,0,1));STK.map.style.opacity=String(1-g*.97);STK.knob.classList.toggle('pressed',STK.mode==='brake');}
+// ================= GESTURES: acting on what you see =================
+// No buttons on the screen: you act on the scene itself. Tap your character to sprint (he walks again once he stops); swipe up
+// from his feet to jump; sweep a finger round his arm (or across him) to throw a punch at whoever is nearest; tap someone close
+// by to talk to them; double-tap a car, a horse, a carriage horse or a standing L train to get in, up, untie it or aboard (out of
+// reach, you hurry over first). In a car tap it for the horn and double-tap it to get out; on horseback tap the horse to gallop,
+// swipe up to jump, double-tap to get down. The mouse does the same: click, double-click, and drag from your character to swipe
+// (dragging anywhere else still looks around). The stick keeps the first thumb down; the other thumb gestures (see gStickWants).
+const GEST={ptr:new Map(),last:null,pend:0,pendFn:null,sprint:false,still:0,goal:null,face:null,fx:0,weapon:'fist',menu:null,talks:[],on:[]};
+const _go=new THREE.Vector3(),_gd=new THREE.Vector3(),_gp=new THREE.Vector3();
+// the camera's ray through a point on the screen (client pixels): from _go along _gd
+function gRay(x,y){_gd.set(x/innerWidth*2-1,1-y/innerHeight*2,.5).unproject(camera);_go.copy(camera.position);_gd.sub(_go).normalize();}
+// how far along that ray it meets an upright box (centre x,z, turned by yaw; half width hw across and hl along; from y0 up to y1)
+// grown by m all round; Infinity if it misses
+function gBox(cx,cz,yaw,hw,hl,y0,y1,m){const s=Math.sin(yaw),c=Math.cos(yaw),ox=_go.x-cx,oz=_go.z-cz;
+  const P=[ox*c-oz*s,_go.y,ox*s+oz*c],D=[_gd.x*c-_gd.z*s,_gd.y,_gd.x*s+_gd.z*c],lo=[-hw-m,y0-m,-hl-m],hi=[hw+m,y1+m,hl+m];let t0=0,t1=1e9;
+  for(let k=0;k<3;k++){if(Math.abs(D[k])<1e-9){if(P[k]<lo[k]||P[k]>hi[k])return Infinity;continue;}let a=(lo[k]-P[k])/D[k],b=(hi[k]-P[k])/D[k];if(a>b){const q=a;a=b;b=q;}
+    if(a>t0)t0=a;if(b<t1)t1=b;if(t0>t1)return Infinity;}
+  return t0;}
+// what is under a screen point, nearest along the ray: you (your character, or your car or horse when you are in or on one),
+// someone near you, a car, a horse, a carriage horse, an L car. {k:'self'|'ped'|'car'|'mount'|'hitch'|'train', o, t}. The
+// boxes grow a little with distance, so far things stay easy to hit; you, and a carriage horse over its wagon, win close calls.
+function gPick(x,y){gRay(x,y);const P=PLAYER,h=P.h,cx=camera.position.x,cz=camera.position.z;let best=null,bt=Infinity;
+  const test=(k,o,bx,bz,yaw,hw,hl,y0,y1,mb,bias=0)=>{const t=gBox(bx,bz,yaw,hw,hl,y0,y1,mb+Math.hypot(bx-cx,bz-cz)*.012);if(t-bias<bt){bt=t-bias;best={k,o,t};}};
+  if(P.car){const v=P.car;test('self',v,v.pos.x,v.pos.z,v.yaw,v.hw,v.hl,v.pos.y,v.pos.y+v.h,.12,1);return best;}
+  if(P.mount){const m=P.mount,g=groundAt(m.x,m.z);test('self',m,m.x,m.z,m.yaw,.45,1.25,g,g+2.6,.15,1);return best;}
+  if(!h.ragdoll&&!LRIDE.on)test('self',h,h.pos.x,h.pos.z,h.yaw,.26,.26,h.pos.y,h.pos.y+1.8,.22,.6);
+  for(const p of PEDS){const t=p.h;if(p.inCar||t.attached||t.ragdoll||!t.group.visible||Math.hypot(t.pos.x-h.pos.x,t.pos.z-h.pos.z)>14)continue;const s=t.scale||1;
+    test('ped',p,t.pos.x,t.pos.z,t.yaw,.26*s,.26*s,t.pos.y,t.pos.y+1.8*s,.14);}
+  for(const v of NEAR_V){if(v.dead||v.mode==='tram'||v.dist>40)continue;test('car',v,v.pos.x,v.pos.z,v.yaw,v.hw,v.hl,v.pos.y,v.pos.y+v.h,.1);
+    if(v.wagon&&v.horse&&!v.horse.down){v.horse.group.getWorldPosition(_gp);test('hitch',v,_gp.x,_gp.z,v.yaw,.45,1.2,_gp.y,_gp.y+2.2,.12,2);}}
+  for(const m of MOUNTS){if(m.rider||m.dead||m.down)continue;const g=groundAt(m.x,m.z);test('mount',m,m.x,m.z,m.yaw,.45,1.25,g,g+2.3,.12);}
+  for(const T of LTRAINS)for(const c of T.cars)if(Math.hypot(c.position.x-h.pos.x,c.position.z-h.pos.z)<45)test('train',T,c.position.x,c.position.z,c.rotation.y,1.35,TRAM_L/2,L_RAIL,L_RAIL+3.3,.1);
+  return best;}
+// your character's place on the screen: x, the feet's y, the head's y (client pixels)
+function gSelfOnScreen(){const h=PLAYER.h;_gp.copy(h.pos).project(camera);const x=(_gp.x*.5+.5)*innerWidth,feet=(-_gp.y*.5+.5)*innerHeight;
+  _gp.set(h.pos.x,h.pos.y+1.75,h.pos.z).project(camera);return{x,feet,head:(-_gp.y*.5+.5)*innerHeight};}
+// does a finger coming down at (x,y) on nothing in particular take the stick (when the stick is free)? On the stick's half of
+// the screen, yes. On the other half only when it is the first finger down and below the top of the screen (the first thumb
+// down decides the stick's side), and not while a gun or a bottle is in hand (then that half is for aiming).
+function gStickWants(x,y){if((x<innerWidth/2)===(STK.cx<innerWidth/2))return true;
+  return GEST.ptr.size===0&&GEST.weapon==='fist'&&y>innerHeight*(innerWidth>innerHeight?.3:.38);}
+function gDown(id,x,y,tg,mouse){gMenuClose(tg&&tg.k==='ped'?tg.o:null);
+  GEST.ptr.set(id,{x0:x,y0:y,x,y,t0:performance.now(),pts:[[x,y]],tg,mouse,look:false,self:tg&&tg.k==='self'&&!PLAYER.car?gSelfOnScreen():null});}
+// a finger (or the mouse) moving: its path is kept for the swipe; one that did not start on you turns the view once it has
+// moved a little (the mouse turns it through its own handler)
+function gMove(id,x,y){const r=GEST.ptr.get(id);if(!r)return;const px=r.x,py=r.y,lp=r.pts[r.pts.length-1];r.x=x;r.y=y;if(Math.hypot(x-lp[0],y-lp[1])>=5)r.pts.push([x,y]);
+  if(r.self)return;if(!r.look){if(Math.hypot(x-r.x0,y-r.y0)<=12)return;r.look=true;if(!r.mouse){MOUSE_DX+=(x-r.x0)*2.2;MOUSE_DY+=(y-r.y0)*2.2;}return;}
+  if(!r.mouse){MOUSE_DX+=(x-px)*2.2;MOUSE_DY+=(y-py)*2.2;}}
+function gUp(id,x,y){const r=GEST.ptr.get(id);if(!r)return;GEST.ptr.delete(id);gMove(id,x,y);if(r.look)return;const now=performance.now();
+  if(Math.hypot(x-r.x0,y-r.y0)<14&&now-r.t0<450){gTap(x,y,r.tg,now,r.mouse);return;}
+  if(r.self&&now-r.t0<900)gSwipe(r,x,y);}
+function gCancel(id){GEST.ptr.delete(id);}
+// how far round a path turns (radians, signed), counting only steps of a few pixels
+function gTurn(pts){let sum=0,pa=null;for(let i=1;i<pts.length;i++){const a=Math.atan2(pts[i][1]-pts[i-1][1],pts[i][0]-pts[i-1][0]);if(pa!==null)sum+=angDiff(pa,a);pa=a;}return sum;}
+function gLen(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
+// a swipe that started on you: up from the feet jumps; round the arm or across the body punches; on horseback, up jumps
+function gSwipe(r,x,y){const P=PLAYER,b=r.self,dx=x-r.x0,up=r.y0-y,bodyH=Math.max(40,b.feet-b.head),turn=gTurn(r.pts),len=gLen(r.pts);
+  if(P.mount){if(up>36&&up>Math.abs(dx)*1.2){PRESS.Space=true;gEvent('jump');}return;}
+  if(P.car)return;
+  if(r.y0>b.feet-bodyH*.45&&up>Math.max(34,bodyH*.3)&&up>Math.abs(dx)*1.3&&Math.abs(turn)<1.3){PRESS.Space=true;gEvent('jump');return;}
+  if(len>Math.max(40,bodyH*.25)&&(Math.abs(turn)>1.2||Math.abs(dx)>Math.abs(y-r.y0)*.8)){gPunch();gEvent('punch');}}
+// throw a punch, turned toward whoever is nearest within reach
+function gPunch(){const h=PLAYER.h;let best=null,bd=2.6;for(const p of PEDS){const t=p.h;if(p.inCar||t.ragdoll||t.attached)continue;const d=Math.hypot(t.pos.x-h.pos.x,t.pos.z-h.pos.z);
+    if(d<bd&&Math.abs(t.pos.y-h.pos.y)<1.2){bd=d;best=t;}}
+  if(best)GEST.face=Math.atan2(best.pos.x-h.pos.x,best.pos.z-h.pos.z);PRESS.KeyF=true;}
+// a tap: one that could be the first of a double-tap (on a car, a horse, a train, or on your own car or horse) waits a moment
+// to see (and acts at once if the next tap is something else); the rest act at once
+const gTwo=tg=>!!tg&&(tg.k==='car'||tg.k==='mount'||tg.k==='hitch'||tg.k==='train'||tg.k==='self'&&!!(PLAYER.car||PLAYER.mount));
+function gTap(x,y,tg,now,mouse){gRipple(x,y);const L=GEST.last,fn=GEST.pendFn;clearTimeout(GEST.pend);GEST.pend=0;GEST.pendFn=null;
+  if(L&&gTwo(L.tg)&&now-L.t<340&&Math.hypot(x-L.x,y-L.y)<50&&(!tg||tg.o===L.tg.o)){GEST.last=null;gDouble(L.tg);return;}
+  if(fn)fn();GEST.last={x,y,t:now,tg};
+  if(gTwo(tg)){GEST.pendFn=()=>gSingle(tg,x,y,mouse);GEST.pend=setTimeout(()=>{const f=GEST.pendFn;GEST.pend=0;GEST.pendFn=null;if(f)f();},320);return;}
+  gSingle(tg,x,y,mouse);}
+// gestures count only out in the city on your own two feet, at the wheel or in the saddle (not riding the L, from the air, ...)
+const gLive=()=>STATE.started&&!STATE.paused&&!GAR.on&&!LRIDE.on&&!LRIDE.busy&&!AER.on&&!EDCAM.on;
+function gSingle(tg,x,y,mouse){const P=PLAYER;if(!gLive())return;
+  if(tg&&tg.k==='self'){if(P.car){PRESS.KeyQ=true;gEvent('horn');}else{GEST.sprint=!GEST.sprint;GEST.still=0;gEvent(GEST.sprint?'sprint':'walk');}return;}
+  if(tg&&tg.k==='ped'&&!P.car&&!P.mount){if(Math.hypot(tg.o.h.pos.x-P.h.pos.x,tg.o.h.pos.z-P.h.pos.z)<6.5){gMenuOpen(tg.o);gEvent('talk');}return;}
+  if(tg&&tg.k!=='self')return;
+  if(mouse&&!P.car&&!P.mount)PRESS.KeyF=true;}              // the mouse on nothing in particular: a punch, as ever
+function gDouble(tg){const P=PLAYER,h=P.h;if(!tg||!gLive())return;
+  if(tg.k==='self'){if(P.car||P.mount){PRESS.KeyE=true;gEvent('exit');}return;}
+  if(P.car||P.mount||h.ragdoll||P.swim)return;
+  if(tg.k==='train'){const b=lBoardable(h.pos);if(b&&b.T===tg.o){lBoard(b.T);gEvent('board');}return;}
+  if(!gReach(tg.k,tg.o))GEST.goal={k:tg.k,o:tg.o,t:0};}
+// within reach of a double-tapped car, horse or carriage horse: get in, get up, untie it (true); else false
+function gReach(k,o){const P=PLAYER,h=P.h;if(k==='car'){if(o.dead)return true;if(Math.hypot(o.pos.x-h.pos.x,o.pos.z-h.pos.z)-Math.min(o.hw,o.hl)*.6<3.2){enterVehicle(o);gEvent('enter');return true;}}
+  else if(k==='mount'){if(o.dead||o.rider)return true;if(Math.hypot(o.x-h.pos.x,o.z-h.pos.z)<2.8){mountHorse(o,h);gEvent('enter');return true;}}
+  else if(k==='hitch'){if(!o.horse)return true;o.horse.group.getWorldPosition(_gp);if(Math.hypot(_gp.x-h.pos.x,_gp.z-h.pos.z)<2.6){untieHorse(o);gEvent('untie');return true;}}
+  return false;}
+// hurrying over to something double-tapped out of reach (called from playerUpdate while the stick is left alone): the way to go,
+// or null when there (or given up: it went off, or 10 s went by)
+function gGoal(h,dt){const G=GEST.goal;if(!G)return null;G.t+=dt;if(gReach(G.k,G.o)||G.t>10){GEST.goal=null;return null;}
+  let x,z;if(G.k==='car'){x=G.o.pos.x;z=G.o.pos.z;}else if(G.k==='mount'){x=G.o.x;z=G.o.z;}else{G.o.horse.group.getWorldPosition(_gp);x=_gp.x;z=_gp.z;}
+  const dx=x-h.pos.x,dz=z-h.pos.z,d=Math.hypot(dx,dz)||1;if(d>32){GEST.goal=null;return null;}return{x:dx/d,z:dz/d};}
+// a soft ring where a tap landed
+function gRipple(x,y){const e=document.createElement('div');e.className='gtap';e.style.left=x+'px';e.style.top=y+'px';$('game').appendChild(e);setTimeout(()=>e.remove(),520);}
+// what the gestures did, for anyone listening (the tutorial)
+function gEvent(k){for(const f of GEST.on)f(k);}
+// ---------- talking to people: a small card over their head ----------
+function gMenuOpen(p){const M=gMenuEl();GEST.menu={p,t:0};M.querySelector('.pmWho').textContent=p.cop?'The officer':{woman:'A lady',nurse:'The nurse',newsboy:'The newsboy',priest:'Father',worker:'A working man'}[p.kind]||'A fella';M.style.display='flex';gMenuPlace();
+  const h=p.h,P=PLAYER.h;if(p.mode==='walk'||p.mode==='idle'||p.mode==='wait'){p.mode='idle';p.timer=6;h.speed=0;h.yaw=Math.atan2(P.pos.x-h.pos.x,P.pos.z-h.pos.z);}}
+function gMenuEl(){let M=$('pmenu');if(M.dataset.ready)return M;M.dataset.ready='1';
+  M.addEventListener('click',e=>{const b=e.target.closest('button');if(b)gMenuAct(b.dataset.a);});return M;}
+function gMenuClose(keep){if(GEST.menu&&GEST.menu.p!==keep){GEST.menu=null;$('pmenu').style.display='none';}}
+function gMenuPlace(){const G=GEST.menu,M=$('pmenu');if(!G)return;const h=G.p.h;_gp.set(h.pos.x,h.pos.y+2.05*(h.scale||1),h.pos.z).project(camera);
+  const x=clamp((_gp.x*.5+.5)*innerWidth,90,innerWidth-90),y=clamp((-_gp.y*.5+.5)*innerHeight,150,innerHeight-40);M.style.left=x+'px';M.style.top=y+'px';}
+const HELLO=['Well, hello yourself!','Swell day, ain\'t it?','How do you do?','Nice to meet ya, pal.','Say, don\'t I know you from somewhere?','Can\'t stop, I\'m late for the pictures!','Hiya, sport!','Why, aren\'t you the friendly type.'];
+// the way to the nearest L station from (x,z), as someone on the street would put it
+function gWayTo(x,z){let best=null,bd=1e9;for(const st of L_STATIONS){const q=stationPos(st),d=Math.hypot(q.x-x,q.z-z);if(d<bd){bd=d;best={st,q};}}
+  if(bd<30)return['The L? You\'re standing right under '+best.st.n+', pal!',best.q];const dx=best.q.x-x,dz=best.q.z-z,dir=Math.abs(dx)>Math.abs(dz)?(dx>0?'east':'west'):(dz>0?'south':'north'),n=Math.max(1,Math.round(bd/105));
+  return[best.st.n+'. '+(n===1?'One block':n===2?'Two blocks':n+' blocks')+' '+dir+' of here.',best.q];}
+function gMenuAct(a){const G=GEST.menu;if(!G)return;const p=G.p,h=p.h,P=PLAYER.h;gMenuClose(null);if(h.ragdoll)return;
+  const face=()=>{h.yaw=Math.atan2(P.pos.x-h.pos.x,P.pos.z-h.pos.z);},calm=p.mode==='idle';
+  if(a==='hello'){face();if(calm)h.state='talk';bark(h,p.cop?pick(BARKS.cop):pick(HELLO));gEvent('hello');}
+  else if(a==='way'){const [txt,q]=gWayTo(h.pos.x,h.pos.z);bark(h,txt);if(calm){h.yaw=Math.atan2(q.x-h.pos.x,q.z-h.pos.z);h.state='hail';p.timer=5;GEST.talks.push({p,t:2.2});}gEvent('way');}
+  else if(a==='shove'){const dx=h.pos.x-P.pos.x,dz=h.pos.z-P.pos.z,d=Math.hypot(dx,dz)||1;PLAYER.h.yaw=Math.atan2(dx,dz);PLAYER.h.punch();
+    knockDown(h,dx/d*2.4,1.4,dz/d*2.4,{y:h.pos.y+1.25,spin:0});p.mode='down';p.timer=rnd(2.5,4);AUD.thud(3,h.pos.x,h.pos.z);setTimeout(()=>bark(h,pick(BARKS.bump)),350);gEvent('shove');}}
+// every frame: the card follows its person (and goes when they, or you, move off), people who pointed the way turn back to you,
+// the sprint ends once you have stood still a moment
+function updateGestures(dt){const P=PLAYER,G=GEST.menu;
+  if(G){G.t+=dt;const h=G.p.h;if(G.t>9||h.ragdoll||P.car||P.mount||LRIDE.on||!h.group.parent||Math.hypot(h.pos.x-P.h.pos.x,h.pos.z-P.h.pos.z)>8)gMenuClose(null);else gMenuPlace();}
+  for(let i=GEST.talks.length-1;i>=0;i--){const T=GEST.talks[i];T.t-=dt;if(T.t>0)continue;GEST.talks.splice(i,1);const h=T.p.h;if(h.ragdoll||T.p.mode!=='idle')continue;h.yaw=Math.atan2(P.h.pos.x-h.pos.x,P.h.pos.z-h.pos.z);h.state='talk';}
+  if(GEST.sprint){const moving=P.mount?P.mount.speed>.5:P.h.speed>.4||!!GEST.goal;GEST.still=moving&&!P.h.ragdoll?0:GEST.still+dt;if(GEST.still>.7||P.car){GEST.sprint=false;GEST.still=0;}}}
+// ---------- the thumb-side framing on a phone ----------
+// Where your character (or car) should stand across the screen, -1 left .. 1 right: away from the stick, where your other thumb
+// can reach it and the road; in landscape it follows the stick's place along the screen.
+function gFrameTarget(cam){if(!STATE.touch||!STK.el)return 0;const sx=STK.cx/innerWidth*2-1;return cam.aspect>1?clamp(-sx*.62,-.42,.42):(sx<0?.3:-.3);}
+// slide the camera (cp) and its look point (tgt, on the character) sideways and turn the view in a little toward the character,
+// so it stands at fx across the screen with the way ahead toward the middle; never through a wall
+function gFrame(cam,cp,tgt,fx){const dx=tgt.x-cp.x,dz=tgt.z-cp.z,hd=Math.hypot(dx,dz);if(hd<.3)return;const rx=-dz/hd,rz=dx/hd,th=Math.tan(cam.fov*Math.PI/360)*cam.aspect,a=Math.atan(fx*th),b=a*.35,s=hd*Math.tan(a+b);
+  const ax=tgt.x,ay=tgt.y,az=tgt.z;cp.x-=rx*s;cp.z-=rz*s;tgt.x-=rx*s;tgt.z-=rz*s;
+  const ox=cp.x-ax,oy=cp.y-ay,oz=cp.z-az,ol=Math.hypot(ox,oy,oz);_gd.set(ox/ol,oy/ol,oz/ol);_go.set(ax,ay,az);const free=rayCols(_go,_gd,ol+.3)-.3;
+  if(free<ol){const k=Math.max(.6,free);cp.set(ax+_gd.x*k,ay+_gd.y*k,az+_gd.z*k);}
+  const fX=tgt.x-cp.x,fZ=tgt.z-cp.z,fl=Math.hypot(fX,fZ)||1,cb=Math.cos(b),sb=Math.sin(b);tgt.x=cp.x+fX*cb+rx*fl*sb;tgt.z=cp.z+fZ*cb+rz*fl*sb;}
 document.addEventListener('pointerlockerror',()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});
 function lockPointer(){if(STATE.noLock||!canvasEl.requestPointerLock)return;try{const r=canvasEl.requestPointerLock();if(r&&r.catch)r.catch(()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});}catch(e){STATE.noLock=true;}}
 // ================= PLAYER =================
@@ -4197,8 +4342,9 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
    if(v.inWater>.85&&v.pos.y<WATER_Y-1.2){exitVehicle();P.swim=true;}return;}
   if(h.ragdoll){P.down+=dt;if(h.ragdoll.rest&&P.down>2.5){h.ragdoll.getUp();P.down=0;P.vel.set(0,0,0);}return;}
   // ---- on foot ----
-  const run=KEYS.ShiftLeft||KEYS.ShiftRight;const cs=Math.sin(CAM.yaw),cc=Math.cos(CAM.yaw);let mx=ix*-cc+iz*-cs,mz=ix*cs+iz*-cc;mx=-mx;let ml=Math.hypot(mx,mz);
-  const fx=-Math.sin(CAM.yaw),fz=-Math.cos(CAM.yaw);const rx=-fz,rz=fx;mx=fx*iz+rx*ix;mz=fz*iz+rz*ix;ml=Math.hypot(mx,mz);if(ml>1){mx/=ml;mz/=ml;ml=1;}
+  let run=KEYS.ShiftLeft||KEYS.ShiftRight||GEST.sprint;const fx=-Math.sin(CAM.yaw),fz=-Math.cos(CAM.yaw);const rx=-fz,rz=fx;let mx=fx*iz+rx*ix,mz=fz*iz+rz*ix,ml=Math.hypot(mx,mz);if(ml>1){mx/=ml;mz/=ml;ml=1;}
+  // hurrying over to a car or horse you double-tapped (until you take the stick)
+  if(ml>.05||P.swim)GEST.goal=null;else{const g=gGoal(h,dt);if(g){mx=g.x;mz=g.z;ml=1;run=true;}if(P.car||P.mount)return;}
   const top=P.swim?1.5:(run?5.6:2.1)*Math.max(ml,TOUCH.active?ml:0);const tvx=ml>.05?mx/ml*top:0,tvz=ml>.05?mz/ml*top:0;const acc=P.onGround||P.swim?14:3;
   P.vel.x+=clamp(tvx-P.vel.x,-acc*dt,acc*dt);P.vel.z+=clamp(tvz-P.vel.z,-acc*dt,acc*dt);if(ml>.05)h.yaw+=angDiff(h.yaw,Math.atan2(mx,mz))*Math.min(1,dt*(run?9:11));
   const nx=h.pos.x+P.vel.x*dt,nz=h.pos.z+P.vel.z*dt;const g0=groundAt(h.pos.x,h.pos.z,h.pos.y+.6),g1=groundAt(nx,nz,h.pos.y+.6);
@@ -4219,6 +4365,7 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
   if(h.pos.y-gy<.5&&P.onGround)h.pos.y+=(gy-h.pos.y)*Math.min(1,dt*18);
   h.speed=Math.hypot(P.vel.x,P.vel.z);h.state=!P.onGround&&h.pos.y-gy>.6?'fall':'idle';
   h.pos.x=clamp(h.pos.x,MAP.x0-2,MAP.x1+300);h.pos.z=clamp(h.pos.z,MAP.z0-3,MAP.z1+3);
+  if(GEST.face!==null){h.yaw=GEST.face;GEST.face=null;}
   if(PRESS.KeyF&&h.pt<=0){P.punchT=h.punch()||.2;setTimeout(()=>AUD.swish(),Math.max(0,P.punchT-.14)*1000);}
   if(P.punchT>0){P.punchT-=dt;if(P.punchT<=0){const fx2=Math.sin(h.yaw),fz2=Math.cos(h.yaw);for(const p of PEDS){const t=p.h;if(t.ragdoll||t.attached)continue;const dx=t.pos.x-h.pos.x,dz=t.pos.z-h.pos.z,d=Math.hypot(dx,dz);if(d<1.25&&(dx*fx2+dz*fz2)/(d||1)>.45){
        knockDown(t,fx2*4,2.2,fz2*4,{y:t.pos.y+1.5,spin:-2});p.mode='down';p.timer=rnd(3,6);AUD.punch(t.pos.x,t.pos.z);bark(t,pick(BARKS.punch));panicAround(t.pos.x,t.pos.z,15);STATE.punches++;break;}}
@@ -4263,11 +4410,11 @@ function rideUpdate(dt){const P=PLAYER,h=P.h,m=P.mount;
   if(h.ragdoll||m.dead){m.rider=null;h.mount=null;P.mount=null;return false;}
   for(let i=1;i<=4;i++)if(PRESS['Digit'+i])m.pace=i;
   const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+(TOUCH.x||0),iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-(TOUCH.y||0);
-  const run=KEYS.ShiftLeft||KEYS.ShiftRight||TOUCH.run;if(PRESS.KeyE){delete PRESS.KeyE;m.wantOff=true;}
+  const run=KEYS.ShiftLeft||KEYS.ShiftRight||GEST.sprint;if(PRESS.KeyE){delete PRESS.KeyE;m.wantOff=true;}
   let target=0;if(iz>.1)target=run?PACES[4]:(Math.abs(TOUCH.y||0)>.05?(iz<.4?PACES[1]:iz<.75?PACES[2]:PACES[3]):PACES[m.pace]);if(m.wantOff||m.down||m.mountT<1||GAME.freeze)target=0;
   const acc=target>m.speed?2.6:(iz<-.1||m.wantOff?6:3.5);m.speed+=clamp(target-m.speed,-acc*dt,acc*dt);
   const tr=-clamp(ix,-1,1)*lerp(1.8,.75,clamp(m.speed/11,0,1));m.turn+=(tr-m.turn)*(1-Math.exp(-dt*6));
-  if((PRESS.Space||TOUCH.jump)&&m.jumpT<0&&m.speed>1.2&&m.mountT>=1)m.jumpT=0;
+  if(PRESS.Space&&m.jumpT<0&&m.speed>1.2&&m.mountT>=1)m.jumpT=0;
   if(m.wantOff&&m.speed<.3&&m.jumpT<0){dismountHorse(m);return true;}
   m.move(dt);m.sync(dt);seatRider(m,h,dt);P.vel.set(Math.sin(m.yaw)*m.speed,0,Math.cos(m.yaw)*m.speed);P.onGround=true;return true;}
 // ---------- untie a carriage horse ----------
@@ -4448,9 +4595,13 @@ function updateCamera(dt,cam){const P=PLAYER,h=P.h;const md=INVERT?-1:1;CAM.idle
     // on a wide screen the old chase distance left the cab tiny: pull in close (a touch higher, so the road still shows over
     // the roof) and ease back only a little with speed; portrait phones keep the old framing
     target=_ct.set(v.pos.x,v.pos.y+lerp(1.6,1.42,wide),v.pos.z);dist=(v.wagon?lerp(9.5,7.4,wide):lerp(6.8,4.7,wide)+Math.min(lerp(5,1.7,wide),sp*lerp(.12,.055,wide)))*zoom;k=Math.min(1,dt*9);}
-   else{if(h.ragdoll){target=_ct.set(h.ragdoll.p[0],h.ragdoll.p[1]+.6,h.ragdoll.p[2]);}else{if(h.speed>.5&&CAM.idle>1.2)follow(h.yaw);target=_ct.set(h.pos.x,h.pos.y+(P.swim?.3:1.55),h.pos.z);}dist=4.1*zoom;k=Math.min(1,dt*14);}}
-  const cp=Math.cos(CAM.pitch),dir=_v1.set(Math.sin(CAM.yaw)*cp,Math.sin(CAM.pitch),Math.cos(CAM.yaw)*cp);const side=P.car||P.mount?0:.45;const tgt=_v2.copy(target).addScaledVector(_v3.set(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw)),-side);
+   // on foot; a phone held sideways comes in close, the character's upper body filling the screen (his legs below the knee out of it)
+   else{const close=STATE.touch?clamp((cam.aspect-1.05)/.45,0,1):0;
+    if(h.ragdoll){target=_ct.set(h.ragdoll.p[0],h.ragdoll.p[1]+.6,h.ragdoll.p[2]);}else{if(h.speed>.5&&CAM.idle>1.2)follow(h.yaw);target=_ct.set(h.pos.x,h.pos.y+(P.swim?.3:lerp(1.55,1.45,close)),h.pos.z);}dist=lerp(4.1,1.75,close)*zoom;k=Math.min(1,dt*14);}}
+  // on a phone the character stands off to the side instead of the over-the-shoulder offset (see gFrame)
+  const cp=Math.cos(CAM.pitch),dir=_v1.set(Math.sin(CAM.yaw)*cp,Math.sin(CAM.pitch),Math.cos(CAM.yaw)*cp);const side=P.car||P.mount||STATE.touch?0:.45;const tgt=_v2.copy(target).addScaledVector(_v3.set(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw)),-side);
   let d=rayCols(tgt,dir,dist+.3)-.3;d=Math.max(.6,Math.min(dist,d));_cp.copy(tgt).addScaledVector(dir,d);const gy=groundAt(_cp.x,_cp.z,_cp.y);if(_cp.y<gy+.3&&!isWater(_cp.x,_cp.z))_cp.y=gy+.3;if(!P.car&&!P.mount){const rf=lRoofOver(h.pos.x,h.pos.z,h.pos.y);if(rf!==null&&_cp.y>rf-.3)_cp.y=Math.max(gy+.3,rf-.3);}if(isWater(_cp.x,_cp.z)&&_cp.y<WATER_Y+.4)_cp.y=WATER_Y+.4;
+  GEST.fx+=(gFrameTarget(cam)-GEST.fx)*(1-Math.exp(-dt*1.8));if(Math.abs(GEST.fx)>.002)gFrame(cam,_cp,tgt,GEST.fx);
   const sw=!P.car&&!P.mount&&!h.ragdoll?stairCam(dt,h):0;if(sw>0){const e=sw*sw*(3-2*sw);_cp.lerp(STAIRCAM.cp,e);tgt.lerp(STAIRCAM.look,e);}
   if(CAM.lastCar!==P.car){CAM.pos.copy(_cp);CAM.lastCar=P.car;}CAM.pos.lerp(_cp,k);CAM.look.lerp(tgt,Math.min(1,dt*16));
   cam.position.copy(CAM.pos);if(CAM.shake>0){CAM.shake=Math.max(0,CAM.shake-dt*2);cam.position.x+=(rand()-.5)*CAM.shake*.3;cam.position.y+=(rand()-.5)*CAM.shake*.3;}cam.lookAt(CAM.look);
@@ -4659,7 +4810,7 @@ function updateHUD(dt,fps){toastT-=dt;if(toastT<0)$('toast').style.opacity=Math.
    if(cand&&STREET.held>=.6&&cand!==STREET.cur){STREET.cur=cand;const el=$('street');el.querySelector('b').textContent=cand;el.querySelector('small').textContent=districtAt(pos.x,pos.z);el.classList.add('on');STREET.t=2.8;}
    if(STATE.showFps)$('fps').textContent=fps+' fps';
    const pr=$('prompt');let msg='',hv=null;if(!P.car&&!P.mount&&!P.h.ragdoll&&!P.swim){const mm=nearestMount(P.h.pos,2.8),v=nearestVehicle(P.h.pos,3.2);hv=nearestHitched(P.h.pos,2.6);
-    if(mm)msg=`<kbd>E</kbd>Ride the ${mm.name}`;else if(v)msg=`<kbd>E</kbd>${v.driver?'Commandeer':'Take'} the ${v.md.name}`;if(hv)msg+=(msg?' &nbsp; ':'')+'<kbd>U</kbd>Untie the horse';}{const tu=$('tUntie');if(tu)tu.style.display=hv?'':'none';}if(P.swim)msg='<kbd>Space</kbd>Climb out at a ladder or low wall';
+    if(mm)msg=`<kbd>E</kbd>Ride the ${mm.name}`;else if(v)msg=`<kbd>E</kbd>${v.driver?'Commandeer':'Take'} the ${v.md.name}`;if(hv)msg+=(msg?' &nbsp; ':'')+'<kbd>U</kbd>Untie the horse';}if(P.swim)msg='<kbd>Space</kbd>Climb out at a ladder or low wall';
    if(!msg&&!LRIDE.on&&!P.car&&!P.mount&&!P.h.ragdoll){const b=lBoardable(P.h.pos);if(b)msg=b.T?'<kbd>E</kbd>Board the L \u00b7 '+(b.T.track===0?'Outer Loop, clockwise':'Inner Loop, counterclockwise'):lWaitMsg(b.p);}
    if(P.h.ragdoll&&!P.car)msg='';if(AER.on)msg='';pr.innerHTML=msg;pr.style.display=msg?'block':'none';}
   // the simple speed readout
@@ -5338,7 +5489,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   // time of day, city
   const S=updateSky(dt,px,pz,camera);updateFountain(dt,px,pz,S.night);updateWorld2(dt,px,pz,S);DROPS.update(dt,dropLand);PUFFS.update(dt);SPARKS.update(dt,sparkLand);updateShards(dt);updateSkid(dt);updateLoose(dt,px,pz);
   updateSignals(simT);updateClocks(SKY.t);UNI.time.value=simT;
-  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else if(LRIDE.on)lRideCamera(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateHUD(dt,fpsShow);
+  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else if(LRIDE.on)lRideCamera(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateGestures(dt);updateHUD(dt,fpsShow);
   // audio
   let lnear=1e9,lx=0,lz=0,lsp=0;for(const T of LTRAINS)if(T.near<lnear){lnear=T.near;lx=T.cars[1].position.x;lz=T.cars[1].position.z;lsp=T.v;}
   const riverD=Math.abs(pz-(RIV.zN+RIV.zS)/2)-(RIV.zS-RIV.zN)/2,lakeD=LAKE_X-px;let moving=0;for(const v of NEAR_V)if(v.dist<60&&v!==P.car&&(v.aiSpeed>2||(v.speed&&v.speed()>2)))moving++;
