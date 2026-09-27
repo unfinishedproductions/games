@@ -5386,7 +5386,7 @@ function garageOwnMaterials(root){const map=new Map();
 // (garageLight is gone: every car in the showroom takes the room's light as it is, as in the ChatGPT build)
 // fade the showroom up from black: the cover lifts while the spotlight, fill and rim lights come up together
 function revealGarage(ms=1700){return new Promise(res=>{GAR.fade={t0:performance.now(),ms,done:res};const b=$('boot');b.classList.add('gone');setTimeout(()=>{b.style.display='none';},ms+300);});}
-function showGarage(){tutStop();lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';
+function showGarage(){tutStop();gMenuClose(null);$('wheel').style.display='none';WPN.shown=false;lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';
   STATE.skipPause=true;if(document.pointerLockElement&&document.exitPointerLock)document.exitPointerLock();$('garageUI').style.display='block';chooseSkin(GAR.sel);
   for(let i=0;i<GAR.cars.length;i++)if(GAR.cars[i])GAR.cars[i].root.position.x=(i-GAR.sel)*3.35;GAR.cam.aspect=innerWidth/innerHeight;GAR.cam.updateProjectionMatrix();}
 function garageFrame(dt){for(let i=0;i<GAR.cars.length;i++){const c=GAR.cars[i];if(!c)continue;c.root.position.x=lerp(c.root.position.x,(i-GAR.sel)*3.35+GAR.offset,Math.min(1,dt*7));}// (lit only by the room, as in the ChatGPT build)
