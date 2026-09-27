@@ -5565,26 +5565,45 @@ let HEADPOOL=null;const HEADBEAMS=[],LAMPLIGHTS=[];let lampT=0;
 // and the cars ahead - yours, and the nearest other car's; traffic further off keeps the cheap glow pools. At night warm lights sit
 // in the street lamps nearest you and light the pavement and the walls round them (the ChatGPT build's lamp pools). They all stay
 // in the scene, at zero by day, so no shader ever recompiles when they come on. Fewer on low quality.
-function buildHeadlights(){const m=new THREE.MeshBasicMaterial({map:TX.glow,color:C('#ffd7a0'),transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
-  HEADPOOL=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),m,64);HEADPOOL.count=0;HEADPOOL.renderOrder=2;HEADPOOL.frustumCulled=false;HEADPOOL.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(HEADPOOL);
+// The road in front of every car at night: the pattern two low beams throw on it (see headPoolTex), laid on the ground ahead of the
+// bumper and blended as light is (the ground's own colour times 1 + the beam), so asphalt, setts and kerbs show through lit rather
+// than under a glowing oval. The real beams (below) are kept gentle, falling off with distance rather than its square, so what
+// stands in front of the lamps is lit, not burnt white; the pool on the road is this.
+function buildHeadlights(){const m=new THREE.MeshBasicMaterial({map:headPoolTex(),color:C('#ffd7a0'),transparent:true,depthWrite:false,fog:false,
+    blending:THREE.CustomBlending,blendEquation:THREE.AddEquation,blendSrc:THREE.DstColorFactor,blendDst:THREE.OneFactor,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+  HEADPOOL=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2).translate(0,0,.5),m,64);HEADPOOL.count=0;HEADPOOL.renderOrder=2;HEADPOOL.frustumCulled=false;HEADPOOL.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  HEADPOOL.setColorAt(0,_hc.setScalar(1));scene.add(HEADPOOL);
   const nb=quality==='low'?2:4,nl=quality==='low'?2:4;
-  for(let i=0;i<nb;i++){const b=new THREE.SpotLight(C(0xffdfa0),0,42,.37,.6,2);b.castShadow=false;scene.add(b,b.target);HEADBEAMS.push(b);}
+  for(let i=0;i<nb;i++){const b=new THREE.SpotLight(C(0xffdfa0),0,42,.37,.6,1);b.castShadow=false;scene.add(b,b.target);HEADBEAMS.push(b);}
   for(let i=0;i<nl;i++){const l=new THREE.PointLight(C(0xffb65f),0,15,2);l.castShadow=false;scene.add(l);LAMPLIGHTS.push(l);}}
-const _hq=new THREE.Quaternion(),_hs=new THREE.Vector3(),_hp=new THREE.Vector3(),_up=new THREE.Vector3(0,1,0);
+const _hq=new THREE.Quaternion(),_hs=new THREE.Vector3(),_hp=new THREE.Vector3(),_up=new THREE.Vector3(0,1,0),_hc=new THREE.Color();
+// the light two low beams throw on the road, as the real ones do: lamps .9 m up and 1.36 m apart, each a 21 degree cone with a soft
+// edge aimed 17.5 m ahead; on the ground that is cos(incidence)/distance squared inside the cones. The rows run from the bumper
+// (the image's top) 22 m down the road, the columns 9 m across, fading out at the sides and the far end; brightness is eased (a
+// power of .55) so the far end still reads.
+function headPoolTex(){const W=96,H=256,c=mk(W,H),g=c.ctx,img=g.createImageData(W,H),h=.9,dip=Math.atan2(.67,17.5),cd=Math.cos(dip),sd=Math.sin(dip),c0=Math.cos(.37),c1=Math.cos(.37*.4),E=new Float32Array(W*H);let mx=0;
+  for(let j=0;j<H;j++){const z=(j+.5)/H*22+.15;for(let i=0;i<W;i++){const x=((i+.5)/W-.5)*9;let e=0;
+      for(const lx of [-.68,.68]){const dx=x-lx,d=Math.hypot(dx,h,z),ca=(h*sd+z*cd)/d,t=clamp((ca-c0)/(c1-c0),0,1);e+=t*t*(3-2*t)*h/(d*d*d);}
+      E[j*W+i]=e*sstep(4.5,3.4,Math.abs(x))*sstep(22.2,16,z);if(E[j*W+i]>mx)mx=E[j*W+i];}}
+  for(let k=0;k<W*H;k++){const v=Math.round(Math.pow(E[k]/mx,.55)*255);img.data[k*4]=img.data[k*4+1]=img.data[k*4+2]=v;img.data[k*4+3]=255;}
+  g.putImageData(img,0,0);return ctex(c,{clamp:true,srgb:false});}
 // a car's two beams: from its lamps (the cab's .68 m out, 1.24 m up, 2.01 m ahead, at the game's cab scale) to the road 17 m on;
 // a lamp that is out (v.lampOut, see the headlight damage) sends no light
 function aimBeams(v,i0,I){const s=Math.sin(v.yaw),c=Math.cos(v.yaw),cab=v.hero||v.cabVi!==undefined;const hx=cab?.68*CAB_S:Math.max(.42,v.hw-.36),hy=cab?1.24*CAB_S:.95,hz=cab?2.01*CAB_S:v.hl-.25;
   for(let k=0;k<2;k++){const b=HEADBEAMS[i0+k];if(!b)continue;const lx=k?hx:-hx;b.intensity=v.lampOut&&v.lampOut[k]?0:I;
    const bd=v.lampBend?v.lampBend[k]:0;b.position.set(v.pos.x+lx*c+hz*s,v.pos.y+hy,v.pos.z-lx*s+hz*c);b.target.position.set(v.pos.x+lx*c+(hz+17.5)*s,v.pos.y+.23-17.5*Math.sin(bd),v.pos.z-lx*s+(hz+17.5)*c);b.target.updateMatrixWorld();}}
 function updateHeadlights(lit,px,pz,dt=.016){const P=PLAYER;
-  if(lit<.04)HEADPOOL.count=0;else{HEADPOOL.material.opacity=lit*.42;let n=0;
-  for(const v of VEHICLES){if(v.dead||v.wagon||n>=64)continue;const d=Math.hypot(v.pos.x-px,v.pos.z-pz);if(d>230)continue;const s=Math.sin(v.yaw),c=Math.cos(v.yaw),ah=v.hl+(v.mode==='tram'?4:4.5);const x=v.pos.x+s*ah,z=v.pos.z+c*ah;
-   _hp.set(x,groundAt(x,z)+.06,z);_hq.setFromAxisAngle(_up,v.yaw);_hs.set(v.mode==='tram'?2.6:3.4,1,v.mode==='tram'?7:9);_m1.compose(_hp,_hq,_hs);HEADPOOL.setMatrixAt(n++,_m1);}
-  HEADPOOL.count=n;HEADPOOL.instanceMatrix.needsUpdate=true;}
+  // every car's pool, from its bumper down the road (half as bright with one lamp out, none with both, none from a wreck), fading
+  // out far off; the beam's strength on the ground is the material's colour, up with the dark
+  if(lit<.04)HEADPOOL.count=0;else{HEADPOOL.material.color.setRGB(1,.86,.62).multiplyScalar(4.2*lit);let n=0;
+  for(const v of VEHICLES){if(v.dead||v.wagon||n>=64||v.health<=0)continue;const d=Math.hypot(v.pos.x-px,v.pos.z-pz);if(d>230)continue;const lo=v.lampOut,k=(lo&&lo[0]?0:.5)+(lo&&lo[1]?0:.5);if(!k)continue;
+   const s=Math.sin(v.yaw),c=Math.cos(v.yaw),b=v.hl-.1,x=v.pos.x+s*b,z=v.pos.z+c*b,tram=v.mode==='tram';_hp.set(x,groundAt(x,z,v.pos.y+.5)+.03,z);_hq.setFromAxisAngle(_up,v.yaw);_hs.set(tram?7:9,1,tram?18:22);
+   _m1.compose(_hp,_hq,_hs);HEADPOOL.setMatrixAt(n,_m1);HEADPOOL.setColorAt(n++,_hc.setScalar(k*(1-sstep(140,230,d))));}
+  HEADPOOL.count=n;HEADPOOL.instanceMatrix.needsUpdate=true;HEADPOOL.instanceColor.needsUpdate=true;}
   // the cabs' lamp glass glows at night, the tail lamps go red (chatgpt.html's setNight)
   if(CABM){CABM.lampMat.emissiveIntensity=lerp(.18,3.5,lit);if(CABM.tailMat){CABM.tailMat.emissive.copy(C(0xff2408));CABM.tailMat.emissiveIntensity=1.8*lit;}}
-  // real beams: chatgpt.html's 950 cd, a little less for the city's brighter night exposure
-  const I=680,me=P.car&&!P.car.wagon&&P.car.health>0?P.car:null;
+  // real beams: gentle, falling off with distance (decay 1), so a face or a fender a few metres off is lit, not burnt white
+  const I=8,me=P.car&&!P.car.wagon&&P.car.health>0?P.car:null;
   if(me&&(lit>.04||me.lights))aimBeams(me,0,I*Math.max(lit,me.lights?.7:0));else if(HEADBEAMS[0]){HEADBEAMS[0].intensity=HEADBEAMS[1].intensity=0;}
   if(HEADBEAMS.length>2){let best=null,bd=60;if(lit>.04)for(const v of NEAR_V){if(v===me||v.dead||v.wagon||v.mode==='boat'||v.mode==='tram'||v.mode==='parked'||v.health<=0)continue;const d=Math.hypot(v.pos.x-px,v.pos.z-pz);if(d<bd){bd=d;best=v;}}
    if(best)aimBeams(best,2,I*lit);else HEADBEAMS[2].intensity=HEADBEAMS[3].intensity=0;}
