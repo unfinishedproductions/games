@@ -94,6 +94,12 @@ body{height:100%;margin:0;background:var(--coal);color:var(--ink);overflow:hidde
 #pmenu .pmWho{font:400 .78rem Limelight,Georgia,serif;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);text-align:center}
 #pmenu button{min-height:44px;padding:.55rem .8rem;font:.95rem "Special Elite","Courier New",Courier,monospace;text-align:left;color:var(--enamel);background:rgba(42,36,27,.92);border:1px solid rgba(201,161,74,.45);border-radius:8px;cursor:pointer;touch-action:manipulation}
 #pmenu button:hover,#pmenu button:focus-visible{border-color:#e0bd66;outline:none}
+/* the weapon wheel beside the stick (or the minimap): the one in hand full size, the others a little smaller */
+#wheel{position:absolute;left:0;top:0;width:0;height:0;z-index:21;display:none;pointer-events:none}
+#wheel .wpn{position:absolute;left:0;top:0;width:50px;height:50px;margin:-25px 0 0 -25px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(29,39,37,.84);border:1px solid rgba(255,230,167,.55);color:#f1e7cf;box-shadow:0 3px 10px #0008;opacity:0;pointer-events:auto;cursor:pointer;touch-action:manipulation;transition:transform .24s cubic-bezier(.2,.8,.2,1),opacity .2s,background-color .2s,border-color .2s}
+#wheel .wpn svg{width:26px;height:26px}
+#wheel .wpn.on{background:#efc76a;border-color:#ffe8b9;color:#2b2112}
+#wheel .wpn:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 body.touch #radar{display:none}
 body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 @media (max-width:640px){#radar{width:120px;height:120px}#street b{font-size:1.25rem}.mTime b{font-size:2.5rem}#fareBtn{padding:10px 14px}}
@@ -141,8 +147,8 @@ body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 #lride .lrOff:hover,#lride .lrOff:focus-visible{border-color:#e0bd66;outline:none}
 @keyframes lrPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.45)}}
 #lfade{position:fixed;inset:0;z-index:70;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease}
-body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu{display:none!important}
-@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}.gtap{animation:none;opacity:.6}}
+body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu,body.lriding #wheel{display:none!important}
+@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}.gtap{animation:none;opacity:.6}#wheel .wpn{transition-duration:.01s}}
 </style>
 </head>
 <body>
@@ -162,6 +168,7 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu
 </div>
 <div id="impactFlash"></div>
 <button id="fareBtn">Pickup fare</button>
+<div id="wheel" role="group" aria-label="Weapons"><button class="wpn on" data-w="fist" aria-label="Fists" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 11V8.2a1.6 1.6 0 0 1 3.2 0V10m0-.8V7.4a1.6 1.6 0 0 1 3.2 0v2.2m0-1.1a1.6 1.6 0 0 1 3.2 0v1.4m0-.4a1.6 1.6 0 0 1 3.2 0v4.3c0 3.2-2.5 5.7-5.7 5.7h-1.6c-2.9 0-5.2-2.2-5.4-5.1L6.3 12c-.1-.9.6-1.6 1.5-1.6h2.4a1.6 1.6 0 0 1 0 3.2H8.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="wpn" data-w="gun" aria-label="Pistol" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5h16.5l1 1.2v1.6h-7.7l-1.1 1.4.9 5.3H8.9l-.6-4.1-1.6-.2-.8-2.6H3z" fill="currentColor"/><path d="M11.2 12.7c.2 1 .9 1.6 1.9 1.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button><button class="wpn" data-w="molotov" aria-label="Molotov cocktail" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.2 8.5V6.2h3.6v2.3l1.7 2.4c.3.4.5.9.5 1.4v7.2c0 .8-.7 1.5-1.5 1.5H9.5c-.8 0-1.5-.7-1.5-1.5v-7.2c0-.5.2-1 .5-1.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8.2 14.2h7.6" stroke="currentColor" stroke-width="1.2"/><path d="M12 6.2c-1.6-.9-2-2.5-.8-4.2.3 1.1 1 1.6 1.7 1.2.6.9.6 2.2-.9 3z" fill="#e9772e"/></svg></button></div>
 <div id="pmenu" role="menu" aria-label="Talk to someone"><span class="pmWho"></span><button role="menuitem" data-a="hello">Say hello</button><button role="menuitem" data-a="way">Ask the way to the L</button><button role="menuitem" data-a="shove">Shove</button></div>
 <div id="aimDot"></div>
 <div id="garageUI"><div id="garageTitle">TAXI WARS &middot; CHICAGO 1928<b>Choose your cab</b></div><div class="garageBottom"><div id="skinName">Yellow Cab</div><div id="skinDetail">327 &middot; ORIGINAL YELLOW</div><div class="garageActions"><div id="garageLoad">
@@ -194,6 +201,7 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu
     <tr><td>U</td><td>Untie a carriage horse from its shafts</td></tr>
     <tr><td>On horseback</td><td>W go, S whoa, A/D steer, 1-4 walk/trot/canter/gallop, Shift gallop, Space jump</td></tr>
     <tr><td>F / click</td><td>Throw a punch</td></tr>
+    <tr><td>1 / 2 / 3</td><td>Fists, pistol, Molotov cocktail (or pick one on the wheel by the minimap). With the pistol a click fires at that spot; with a bottle it throws it there</td></tr>
     <tr><td>Space</td><td>Jump on foot, handbrake in a car</td></tr>
     <tr><td>Q</td><td>Horn</td></tr>
     <tr><td>P</td><td>Pick up a fare</td></tr>
@@ -2301,6 +2309,9 @@ function buildProps(){const paper=new THREE.Mesh(new THREE.BoxGeometry(.34,.02,.
   for(const [k,c] of [['parasol','#eadccb'],['parasol2','#c89aa0'],['parasol3','#9ab0c8']])PROPS[k]=one([[Cy(.008,.008,.86,5),0,-.37,0,0,'#4a2e1a'],[new THREE.ConeGeometry(.44,.2,12,1,true),0,-.76,0,Math.PI,c]],{side:THREE.DoubleSide,roughness:.8});
   PROPS.brush=one([[Cy(.006,.004,.22,5),0,-.1,.02,0,'#4a2e1a'],[Cy(.008,.004,.04,5),0,-.22,.02,0,'#2a2a2a']]);
   PROPS.cup=one([[Cy(.042,.034,.09,10,true),0,-.07,.05,0,'#8a8a86']],{metalness:.5,side:THREE.DoubleSide});
+  // the pistol (a 1911, barrel forward) and the Molotov cocktail (a green bottle with a rag stuffed in its neck)
+  PROPS.pistol=one([[Bx(.03,.1,.038),0,-.075,-.005,.25,'#4a2e1a'],[Bx(.028,.034,.17),0,-.015,.06,0,'#26272a'],[Bx(.006,.03,.045),0,-.045,.05,0,'#26272a'],[Cy(.009,.009,.06,8),0,-.02,.17,Math.PI/2,'#1c1d1f']],{metalness:.55,roughness:.4});
+  PROPS.bottle=one([[Cy(.034,.036,.16,10),0,-.05,.03,0,'#2f4a2a'],[Cy(.012,.032,.05,10),0,.055,.03,0,'#2f4a2a'],[Cy(.012,.012,.05,8),0,.1,.03,0,'#2f4a2a'],[Bx(.03,.07,.03),0,.15,.03,.3,'#d8ccb0']],{roughness:.3});
   PROPS.accordion=one([[Bx(.34,.24,.2),.16,-.06,.1,0,'#7a1e1a'],[Bx(.06,.25,.21),.02,-.06,.1,0,'#e8e2d0']]);}
 // ================= RAGDOLL (position-based dynamics on 16 joints) =================
 // 0 pelvis 1 chest 2 neck 3 head 4 lSh 5 lEl 6 lWr 7 rSh 8 rEl 9 rWr 10 lHip 11 lKn 12 lAn 13 rHip 14 rKn 15 rAn
@@ -4246,7 +4257,7 @@ function gPunch(){const h=PLAYER.h;let best=null,bd=2.6;for(const p of PEDS){con
 // a tap: one that could be the first of a double-tap (on a car, a horse, a train, or on your own car or horse) waits a moment
 // to see (and acts at once if the next tap is something else); the rest act at once
 const gTwo=tg=>!!tg&&(tg.k==='car'||tg.k==='mount'||tg.k==='hitch'||tg.k==='train'||tg.k==='self'&&!!(PLAYER.car||PLAYER.mount));
-function gTap(x,y,tg,now,mouse){gRipple(x,y);const L=GEST.last,fn=GEST.pendFn;clearTimeout(GEST.pend);GEST.pend=0;GEST.pendFn=null;
+function gTap(x,y,tg,now,mouse){if(GEST.weapon!=='fist'&&!(tg&&tg.k==='self')){wpnFire(x,y);return;}gRipple(x,y);const L=GEST.last,fn=GEST.pendFn;clearTimeout(GEST.pend);GEST.pend=0;GEST.pendFn=null;
   if(L&&gTwo(L.tg)&&now-L.t<340&&Math.hypot(x-L.x,y-L.y)<50&&(!tg||tg.o===L.tg.o)){GEST.last=null;gDouble(L.tg);return;}
   if(fn)fn();GEST.last={x,y,t:now,tg};
   if(gTwo(tg)){GEST.pendFn=()=>gSingle(tg,x,y,mouse);GEST.pend=setTimeout(()=>{const f=GEST.pendFn;GEST.pend=0;GEST.pendFn=null;if(f)f();},320);return;}
@@ -4313,6 +4324,107 @@ function gFrame(cam,cp,tgt,fx){const dx=tgt.x-cp.x,dz=tgt.z-cp.z,hd=Math.hypot(d
   const ox=cp.x-ax,oy=cp.y-ay,oz=cp.z-az,ol=Math.hypot(ox,oy,oz);_gd.set(ox/ol,oy/ol,oz/ol);_go.set(ax,ay,az);const free=rayCols(_go,_gd,ol+.3)-.3;
   if(free<ol){const k=Math.max(.6,free);cp.set(ax+_gd.x*k,ay+_gd.y*k,az+_gd.z*k);}
   const fX=tgt.x-cp.x,fZ=tgt.z-cp.z,fl=Math.hypot(fX,fZ)||1,cb=Math.cos(b),sb=Math.sin(b);tgt.x=cp.x+fX*cb+rx*fl*sb;tgt.z=cp.z+fZ*cb+rz*fl*sb;}
+// ================= WEAPONS: fists, a pistol, a Molotov cocktail =================
+// Picked on the little wheel beside the stick (or beside the minimap on a desktop, or with 1, 2, 3 on foot and at the wheel); the
+// one in hand shows larger. Fists: the punches. Pistol: a tap (or click) anywhere but on yourself fires at that point, on foot, from
+// the saddle or out of the car window. Molotov: a tap throws a lit bottle at the spot; it bursts into a fire that burns a few
+// seconds, knocking people down and cooking cars.
+const WPN={list:['fist','gun','molotov'],cool:0,tracers:[],bottles:[],fires:[],light:null,shown:false,at:null,atKey:'',slots:null};
+const _wa=new THREE.Vector3(),_wb=new THREE.Vector3(),_wc=new THREE.Vector3();
+function buildWeapons(){WPN.light=new THREE.PointLight(C(0xff8a3a),0,18,2);WPN.light.castShadow=false;scene.add(WPN.light);
+  for(let i=0;i<6;i++){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
+    const m=new THREE.LineBasicMaterial({color:new THREE.Color(4,3.1,1.6),transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+    const l=new THREE.Line(g,m);l.frustumCulled=false;l.visible=false;scene.add(l);WPN.tracers.push({l,t:0});}
+  const W=$('wheel');W.addEventListener('click',e=>{const b=e.target.closest('.wpn');if(b){e.stopPropagation();wpnSelect(b.dataset.w);}});
+  W.addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});}
+// ---------- the wheel ----------
+function wpnSelect(w){if(!WPN.list.includes(w)||GEST.weapon===w)return;GEST.weapon=w;for(const b of document.querySelectorAll('#wheel .wpn')){const on=b.dataset.w===w;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);}
+  WPN.slots=null;wpnProp();gEvent('arm:'+w);}
+// what you hold: the pistol or the lit bottle in your right hand on foot (nothing in a car, on a horse, or with the fists; the next
+// bottle comes to hand a moment after a throw)
+function wpnProp(dt){const P=PLAYER,h=P.h;if(!h)return;const want=P.car||P.mount||h.ragdoll||P.swim?null:GEST.weapon==='gun'?'pistol':GEST.weapon==='molotov'&&WPN.cool<.2?'bottle':null;
+  if((h.prop?h.propKind:null)!==want){h.setProp(want);h.propKind=want;}
+  if(want==='bottle'&&dt&&chance(dt*24)){h.prop.getWorldPosition(_wc);SPARKS.emit(_wc.x,_wc.y+.2,_wc.z,rnd(-.1,.1),rnd(.3,.7),rnd(-.1,.1),rnd(.15,.3),rnd(.07,.13),2.4,1.2,.3,1,1.5,-.2,1,0);}}
+// where the wheel sits: round the stick on a phone, round the minimap on a desktop; centre (x,y) and the radius its items sit on
+function wpnAnchor(){if(STATE.touch)return STK.el?{x:STK.cx,y:STK.cy,r:STK.R+34}:null;const k=innerWidth+'x'+innerHeight;if(WPN.atKey!==k)WPN.at=null;
+  if(!WPN.at){const r=$('radar').getBoundingClientRect();if(r.width){WPN.at={x:r.left+r.width/2,y:r.top+r.height/2,r:r.width/2+32};WPN.atKey=k;}}return WPN.at;}
+// the three items on an arc toward the middle of the screen; the one in hand full size, the others a little smaller. Shown, they
+// grow out from the stick's centre one after another.
+function wpnWheel(){const W=$('wheel'),show=STATE.started&&!GAR.on&&!STATE.paused&&!LRIDE.on&&!AER.on&&!EDCAM.on,a=show?wpnAnchor():null;
+  if(!a){if(WPN.shown){W.style.display='none';WPN.shown=false;}return;}
+  const items=W.querySelectorAll('.wpn'),base=Math.atan2(innerHeight/2-a.y,innerWidth/2-a.x),spread=.7;
+  if(!WPN.shown){W.style.display='block';WPN.shown=true;WPN.slots=null;
+    items.forEach(b=>{b.style.transition='none';b.style.transform=`translate(${a.x}px,${a.y}px) scale(.2)`;b.style.opacity='0';});void W.offsetWidth;
+    items.forEach((b,i)=>{b.style.transition='';b.style.transitionDelay=i*.09+'s';});}
+  const key=Math.round(a.x)+','+Math.round(a.y)+','+GEST.weapon;if(WPN.slots===key)return;WPN.slots=key;
+  items.forEach((b,i)=>{const t=base+(i-1)*spread,x=clamp(a.x+Math.cos(t)*a.r,30,innerWidth-30),y=clamp(a.y+Math.sin(t)*a.r,30,innerHeight-30);
+    b.style.transform=`translate(${x}px,${y}px) scale(${b.dataset.w===GEST.weapon?1:.8})`;b.style.opacity='1';});
+  setTimeout(()=>items.forEach(b=>{b.style.transitionDelay='';}),400);}
+// ---------- firing ----------
+// what a shot through screen point (x,y) strikes, nearest first: a person, a car (or a horse), a building, the ground; up to
+// range metres. {x,y,z,k:'ped'|'car'|'horse'|'bldg'|'ground',o} or null (the sky)
+function wpnAim(x,y,range){gRay(x,y);const P=PLAYER,h=P.h;let best=null,bt=range;
+  const hit=(k,o,t)=>{if(t<bt){bt=t;best={k,o};}};
+  for(const p of PEDS){const t=p.h;if(p.inCar||t===h||t.attached||t.ragdoll||Math.hypot(t.pos.x-h.pos.x,t.pos.z-h.pos.z)>range)continue;const s=t.scale||1;hit('ped',p,gBox(t.pos.x,t.pos.z,t.yaw,.24*s,.2*s,t.pos.y,t.pos.y+1.75*s,.05));}
+  for(const v of NEAR_V){if(v.dead||v===P.car)continue;hit('car',v,gBox(v.pos.x,v.pos.z,v.yaw,v.hw,v.hl,v.pos.y,v.pos.y+v.h,0));}
+  for(const m of MOUNTS){if(m.dead||m===P.mount)continue;const g=groundAt(m.x,m.z);hit('horse',m,gBox(m.x,m.z,m.yaw,.4,1.2,g,g+2,0));}
+  hit('bldg',null,rayCols(_go,_gd,bt));
+  if(_gd.y<0){let a=0;for(let t=.5;t<bt;t+=.75){const px=_go.x+_gd.x*t,py=_go.y+_gd.y*t,pz=_go.z+_gd.z*t;if(py<=groundAt(px,pz,py+.5)){let b=t;
+        for(let i=0;i<7;i++){const m=(a+b)/2,my=_go.y+_gd.y*m;if(my<=groundAt(_go.x+_gd.x*m,_go.z+_gd.z*m,my+.5))b=m;else a=m;}hit('ground',null,b);break;}a=t;}}
+  if(!best)return null;best.x=_go.x+_gd.x*bt;best.y=_go.y+_gd.y*bt;best.z=_go.z+_gd.z*bt;return best;}
+// where the shot or the throw leaves from: your right hand (you turn to face the mark), or the driver's window on the mark's side
+function wpnOrigin(tx,tz,o){const P=PLAYER,h=P.h;
+  if(P.car){const v=P.car,s=Math.sin(v.yaw),c=Math.cos(v.yaw),side=(tx-v.pos.x)*c-(tz-v.pos.z)*s>0?1:-1,w=v.hw+.12;return o.set(v.pos.x+side*w*c+s*.3,v.pos.y+v.h*.72,v.pos.z-side*w*s+c*.3);}
+  h.yaw=Math.atan2(tx-h.pos.x,tz-h.pos.z);const s=Math.sin(h.yaw),c=Math.cos(h.yaw);return o.set(h.pos.x+s*.42-c*.16,h.pos.y+1.34,h.pos.z+c*.42+s*.16);}
+// a tap with the pistol or the bottle in hand
+function wpnFire(x,y){const P=PLAYER;if(!gLive()||WPN.cool>0||P.swim||(!P.car&&P.h.ragdoll))return;if(GEST.weapon==='gun')wpnShoot(x,y);else if(GEST.weapon==='molotov')wpnThrow(x,y);}
+function wpnShoot(x,y){const P=PLAYER,a=wpnAim(x,y,150);WPN.cool=.18;
+  if(!a){gRay(x,y);_wa.copy(_go).addScaledVector(_gd,150);}else _wa.set(a.x,a.y,a.z);const o=wpnOrigin(_wa.x,_wa.z,_wb);
+  if(!P.car&&!P.mount)P.h.punch();AUD.shot(o.x,o.z);SPARKS.emit(o.x,o.y,o.z,0,0,0,.05,.55,3.2,2.4,1.1,1,0,0,0,0);PUFFS.emit(o.x,o.y,o.z,rnd(-.2,.2),.4,rnd(-.2,.2),.6,.25,.7,.7,.7,.25,0,1,1,2);
+  const tr=WPN.tracers.find(q=>q.t<=0)||WPN.tracers[0],pa=tr.l.geometry.attributes.position;pa.setXYZ(0,o.x,o.y,o.z);pa.setXYZ(1,_wa.x,_wa.y,_wa.z);pa.needsUpdate=true;tr.t=.07;tr.l.visible=true;
+  panicAround(o.x,o.z,24);gEvent('shot');if(!a)return;
+  const dx=_wa.x-o.x,dz=_wa.z-o.z,dl=Math.hypot(dx,dz)||1,fx=dx/dl,fz=dz/dl;
+  if(a.k==='ped'){const p=a.o,t=p.h;knockDown(t,fx*3.2,1.1,fz*3.2,{y:a.y,spin:rnd(-2,2)});p.mode='down';p.timer=rnd(8,14);if(p.fare)fareKnocked(p);AUD.punch(t.pos.x,t.pos.z);setTimeout(()=>bark(t,pick(['Aaagh!','I\'m hit!','Ow! Ow! Ow!','Mother!'])),200);return;}
+  if(a.k==='car'){const v=a.o;v.health=Math.max(0,(v.health??100)-10);if(v.mode==='ai')v.bolt=5;AUD.tick&&AUD.tick(a.x,a.z);}
+  if(isWater(a.x,a.z)&&a.y<WATER_Y+.6){splashRipple(a.x,a.z,.5,.05);for(let k=0;k<6;k++)DROPS.emit(a.x,a.y+.05,a.z,rnd(-.6,.6),rnd(1.5,3),rnd(-.6,.6),rnd(.4,.7),.1,.85,.9,.95,.8,-9.8,0,.2,1);return;}
+  if(a.k!=='horse')for(let k=0;k<7;k++)SPARKS.emit(a.x-fx*.05,a.y,a.z-fz*.05,-fx*rnd(1,3)+rnd(-1.5,1.5),rnd(.5,3),-fz*rnd(1,3)+rnd(-1.5,1.5),rnd(.12,.3),.05,1.8,1.4,.7,1,-9.8,0,.3,1);
+  PUFFS.emit(a.x,a.y,a.z,-fx*.4,.3,-fz*.4,rnd(.5,.9),rnd(.3,.5),.6,.57,.52,.35,0,1.2,1.4,2);}
+// the throw: a lit bottle in an arc to the spot under your finger (28 m at most)
+function wpnThrow(x,y){const P=PLAYER,h=P.h,a=wpnAim(x,y,60);if(a)_wa.set(a.x,a.y,a.z);else{gRay(x,y);_wa.copy(_go).addScaledVector(_gd,28);_wa.y=groundAt(_wa.x,_wa.z);}
+  const o=wpnOrigin(_wa.x,_wa.z,_wb).clone();if(!P.car&&!P.mount){o.y+=.2;h.punch();}let d=Math.hypot(_wa.x-o.x,_wa.z-o.z);
+  if(d>28){_wa.x=o.x+(_wa.x-o.x)*28/d;_wa.z=o.z+(_wa.z-o.z)*28/d;_wa.y=groundAt(_wa.x,_wa.z);d=28;}
+  const T=clamp(d/13,.45,1.5),v=new THREE.Vector3((_wa.x-o.x)/T,(_wa.y-o.y)/T+4.9*T,(_wa.z-o.z)/T),m=PROPS.bottle.clone();m.scale.setScalar(1.25);scene.add(m);
+  WPN.bottles.push({m,p:o,v,t:0,spin:rnd(7,11)});WPN.cool=1.1;AUD.swish();gEvent('throw');}
+// a bottle bursting: glass, a sheet of flame, and a fire burning on the ground there for a few seconds
+function wpnBurst(x,y,z){const g=groundAt(x,z,y+.5),fy=Math.abs(y-g)<1.2?g:y;AUD.glass(x,z);AUD.fire(x,z);
+  for(let k=0;k<46;k++){const a=rand()*TAU,s=rnd(1.5,5.5);SPARKS.emit(x,fy+.3,z,Math.cos(a)*s,rnd(1,4.5),Math.sin(a)*s,rnd(.35,.8),rnd(.25,.6),2.6,1.3,.3,1,-4,0,1.4,0);}
+  for(let k=0;k<10;k++)SPARKS.emit(x+rnd(-.4,.4),fy+.2,z+rnd(-.4,.4),rnd(-1,1),rnd(.5,1.5),rnd(-1,1),.08,.9,.9,.85,.8,1,-9.8,0,0,0);
+  WPN.fires.push({x,y:fy,z,t:0,life:6.5,r:2.6,hit:new Set()});CAM.shake=Math.max(CAM.shake,Math.hypot(x-PLAYER.h.pos.x,z-PLAYER.h.pos.z)<12?.35:0);panicAround(x,z,26);gEvent('burst');}
+// every frame: the tracers fade, bottles fly (and burst on whatever they meet), fires burn and spread harm, the firelight
+// flickers over the nearest fire, the wheel keeps its place
+function wpnUpdate(dt,lit){WPN.cool=Math.max(0,WPN.cool-dt);
+  for(const q of WPN.tracers){if(q.t<=0)continue;q.t-=dt;q.l.material.opacity=Math.max(0,q.t/.07);if(q.t<=0)q.l.visible=false;}
+  for(let i=WPN.bottles.length-1;i>=0;i--){const b=WPN.bottles[i];b.t+=dt;b.v.y-=9.8*dt;const n=_wc.copy(b.v).multiplyScalar(dt);let hitT=1;
+    if(b.t>.12){_go.copy(b.p);const l=n.length();_gd.copy(n).divideScalar(l||1);const w=rayCols(_go,_gd,l);if(w<l)hitT=w/l;
+      for(const v of NEAR_V){if(v.dead||v===PLAYER.car)continue;const t=gBox(v.pos.x,v.pos.z,v.yaw,v.hw,v.hl,v.pos.y,v.pos.y+v.h,.05);if(t<l)hitT=Math.min(hitT,t/l);}
+      for(const p of PEDS){const t=p.h;if(p.inCar||t.ragdoll||t.attached)continue;const s=t.scale||1,d=gBox(t.pos.x,t.pos.z,t.yaw,.25*s,.25*s,t.pos.y,t.pos.y+1.75*s,.1);if(d<l)hitT=Math.min(hitT,d/l);}}
+    b.p.addScaledVector(n,hitT);const gy=groundAt(b.p.x,b.p.z,b.p.y+.3);
+    if(hitT<1||b.p.y<=gy||b.t>4){WPN.bottles.splice(i,1);b.m.removeFromParent();wpnBurst(b.p.x,Math.max(b.p.y,gy),b.p.z);continue;}
+    b.m.position.copy(b.p);b.m.rotation.set(b.t*b.spin,b.t*b.spin*.4,0);if(chance(dt*60))SPARKS.emit(b.p.x,b.p.y+.12,b.p.z,rnd(-.3,.3),rnd(.2,.8),rnd(-.3,.3),rnd(.15,.3),rnd(.12,.22),2.4,1.2,.3,1,1.5,-.2,1,0);}
+  const P=PLAYER,cx=camera.position.x,cz=camera.position.z;let near=null,nd=90;
+  for(let i=WPN.fires.length-1;i>=0;i--){const f=WPN.fires[i];f.t+=dt;if(f.t>=f.life){WPN.fires.splice(i,1);continue;}
+    const k=Math.min(1,f.t*4)*Math.min(1,(f.life-f.t)/1.5),r=f.r*(.55+.45*k);
+    for(let n=0;n<Math.ceil(dt*70*k);n++){const a=rand()*TAU,q=Math.sqrt(rand())*r*.8;SPARKS.emit(f.x+Math.cos(a)*q,f.y+.08,f.z+Math.sin(a)*q,rnd(-.4,.4),rnd(1.2,3),rnd(-.4,.4),rnd(.35,.75),rnd(.35,.85)*(1-q/r*.5),2.4,1.05+rand()*.35,.22,1,2.2,-.35,1.2,0);}
+    if(chance(dt*7*k))PUFFS.emit(f.x+rnd(-r*.5,r*.5),f.y+1.3,f.z+rnd(-r*.5,r*.5),rnd(-.3,.3),rnd(.9,1.7),rnd(-.3,.3),rnd(2,3.2),rnd(1.2,2),.13,.12,.11,.55,0,1.3,.5,2);
+    // harm: people in it go down (once each), cars in it cook, and so do you
+    for(const p of PEDS){const t=p.h;if(p.inCar||t.ragdoll||t.attached||f.hit.has(p)||Math.hypot(t.pos.x-f.x,t.pos.z-f.z)>r+.25||Math.abs(t.pos.y-f.y)>1.5)continue;f.hit.add(p);
+      const dx=t.pos.x-f.x,dz=t.pos.z-f.z,dl=Math.hypot(dx,dz)||1;knockDown(t,dx/dl*2.5,2,dz/dl*2.5,{y:t.pos.y+1,spin:rnd(-2,2)});p.mode='down';p.timer=rnd(6,10);if(p.fare)fareKnocked(p);setTimeout(()=>bark(t,pick(['Fire! Fire!','Yeeow!','I\'m burnin\'!','Somebody get the fire brigade!'])),250);}
+    for(const v of NEAR_V){if(v.dead||v.mode==='tram')continue;if(Math.hypot(v.pos.x-f.x,v.pos.z-f.z)<r+Math.max(v.hw,v.hl)*.6&&Math.abs(v.pos.y-f.y)<2)v.health=Math.max(0,(v.health??100)-11*dt*k);}
+    if(!P.car&&!P.mount&&!P.h.ragdoll&&!f.hit.has(P)&&Math.hypot(P.h.pos.x-f.x,P.h.pos.z-f.z)<r&&Math.abs(P.h.pos.y-f.y)<1.5){f.hit.add(P);const dx=P.h.pos.x-f.x,dz=P.h.pos.z-f.z,dl=Math.hypot(dx,dz)||1;knockDown(P.h,dx/dl*2.5,2,dz/dl*2.5);P.down=0;}
+    if(chance(dt*3*k))AUD.tick&&AUD.tick(f.x,f.z);
+    const d=Math.hypot(f.x-cx,f.z-cz);if(d<nd){nd=d;near={f,k};}}
+  const L=WPN.light;if(L){if(near){const f=near.f;L.position.set(f.x,f.y+1.4,f.z);L.intensity=(30+50*lit)*near.k*(.8+.2*Math.sin(f.t*23)+.12*Math.sin(f.t*37));}else L.intensity=0;}
+  wpnWheel();wpnProp(dt);}
 document.addEventListener('pointerlockerror',()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});
 function lockPointer(){if(STATE.noLock||!canvasEl.requestPointerLock)return;try{const r=canvasEl.requestPointerLock();if(r&&r.catch)r.catch(()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});}catch(e){STATE.noLock=true;}}
 // ================= PLAYER =================
@@ -4331,6 +4443,7 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
   // E on an L platform with a train standing at it: board
   if(PRESS.KeyE&&!P.car&&!P.mount&&!h.ragdoll&&!P.swim){const b=lBoardable(h.pos);if(b&&b.T){delete PRESS.KeyE;lBoard(b.T);return;}}
   if(rideUpdate(dt))return;
+  for(let i=0;i<3;i++)if(PRESS['Digit'+(i+1)])wpnSelect(WPN.list[i]);
   if(PRESS.KeyU&&!P.car&&!h.ragdoll&&!P.swim){const hv=nearestHitched(h.pos,2.6);if(hv)untieHorse(hv);}
   const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
   if(PRESS.KeyE){if(P.car){if(P.car.speed()<6)exitVehicle();}else if(!h.ragdoll&&!P.swim){const v=nearestVehicle(h.pos,3.2);if(v)enterVehicle(v);}}
@@ -4749,6 +4862,9 @@ const AUD={ctx:null,on:true,lx:0,lz:0,lyaw:0,
  wood(x,z,sp){const d=this.sp(x,z,Math.min(1.1,.3+sp*.06),90);if(!d)return;const t=this.ctx.currentTime;for(let i=0;i<5;i++)this.noise(d,t+i*.035+Math.random()*.03,.18,'bandpass',500+Math.random()*700,250,4);this.noise(d,t,.05,'highpass',3000,2000,.7);this.tone(d,t,.2,'sine',120,60,.7);},
  glass(x,z){const d=this.sp(x,z,.6,80);if(!d)return;const t=this.ctx.currentTime;for(let i=0;i<9;i++)this.tone(d,t+Math.random()*.25,.25,'sine',2800+Math.random()*4500,null,.15,.001);this.noise(d,t,.3,'highpass',6000,4000,.5);},
  punch(x,z){const d=this.sp(x,z,.7,40);if(!d)return;const t=this.ctx.currentTime;this.tone(d,t,.12,'sine',150,60,1);this.noise(d,t,.07,'bandpass',1800,900,1.2);},
+ // a pistol shot: the crack, the blast, the thump; a Molotov catching: a rushing whoosh
+ shot(x,z){const d=this.sp(x,z,1,170);if(!d)return;const t=this.ctx.currentTime;this.noise(d,t,.04,'highpass',3200,1600,.7,null,.001);this.noise(d,t,.32,'lowpass',5200,260,.9,null,.002);this.tone(d,t,.18,'sine',170,42,1.1,.002);},
+ fire(x,z){const d=this.sp(x,z,.8,90);if(!d)return;const t=this.ctx.currentTime;this.noise(d,t,.9,'lowpass',260,2400,.6,null,.03);this.noise(d,t+.1,1.4,'bandpass',900,300,.5,null,.25);},
  swish(){const d=this.sp(undefined,undefined,.18);if(!d)return;this.noise(d,this.ctx.currentTime,.18,'bandpass',600,2400,1.2,null,.05);},
  step(){const d=this.sp(undefined,undefined,.07+Math.random()*.03);if(!d)return;const t=this.ctx.currentTime;this.noise(d,t,.06,'bandpass',900+Math.random()*500,500,1.5,null,.002);},
  door(){const d=this.sp(undefined,undefined,.4);if(!d)return;const t=this.ctx.currentTime;this.tone(d,t,.15,'sine',95,55,1);this.noise(d,t+.02,.05,'highpass',2500,1800,1);},
@@ -5417,7 +5533,7 @@ async function init(){STATE.touch=(matchMedia&&matchMedia('(pointer: coarse)').m
   await step(()=>srcScope(buildFurniture,scene));await step(()=>srcScope(buildParkTrees));await step(()=>{srcScope(buildWater,scene);srcScope(buildFountain,scene);});await step(async()=>{await buildHumanLibrary();srcScope(buildProps);});await step(async()=>{await buildCarLibrary();buildCarPools();});
   await step(()=>{srcScope(buildFruitSystem,scene,4800);srcScope(buildStalls,scene);srcScope(buildClutter);});await step(()=>{buildWalkGraph();srcScope(spawnSpecials);srcScope(buildWorld2);setupAerialUI();});await step(()=>{finalizeBuckets(scene);buildPropPools();buildDebrisPools();makeClockHands(scene);buildMapImage();});
   await step(()=>buildRoadNet());await step(()=>{srcScope(buildTrams);srcScope(buildLTrains);srcScope(buildBoats);srcScope(buildSailboats);srcScope(buildTrenchTrain);});
-  await step(()=>{buildSky(scene);onResize();DROPS=new Particles(scene,4000,TX.drop,THREE.NormalBlending);PUFFS=new Particles(scene,1600,TX.puff,THREE.NormalBlending,1,{smoke:true,amb:PART_AMB});SPARKS=new Particles(scene,900,TX.glow,THREE.AdditiveBlending);buildHeadlights();buildLampFX();applyQualityShadows();buildShards();buildFareMarker();buildLandmarkDrops();});
+  await step(()=>{buildSky(scene);onResize();DROPS=new Particles(scene,4000,TX.drop,THREE.NormalBlending);PUFFS=new Particles(scene,1600,TX.puff,THREE.NormalBlending,1,{smoke:true,amb:PART_AMB});SPARKS=new Particles(scene,900,TX.glow,THREE.AdditiveBlending);buildHeadlights();buildLampFX();buildWeapons();applyQualityShadows();buildShards();buildFareMarker();buildLandmarkDrops();});
   // the last corner of the Loop used to be one long blocking stretch (all the traffic, then every shader in one call):
   // now it is cut into small pieces with a frame between each, so the page never stops answering
   await step(async()=>{initPlayer();const px=PLAYER.h.pos.x,pz=PLAYER.h.pos.z;for(let c=0;c<7;c++){for(let i=0;i<10;i++){updateTraffic(0,px,pz,0);pedsUpdate(0,px,pz,0,camera);}stepProgress((c+1)/8);await nextFrame();}
@@ -5489,7 +5605,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   // time of day, city
   const S=updateSky(dt,px,pz,camera);updateFountain(dt,px,pz,S.night);updateWorld2(dt,px,pz,S);DROPS.update(dt,dropLand);PUFFS.update(dt);SPARKS.update(dt,sparkLand);updateShards(dt);updateSkid(dt);updateLoose(dt,px,pz);
   updateSignals(simT);updateClocks(SKY.t);UNI.time.value=simT;
-  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else if(LRIDE.on)lRideCamera(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateGestures(dt);updateHUD(dt,fpsShow);
+  if(STATE.touch)updateStickUI(dt);if(EDCAM.on)edCamUpdate(dt,camera);else if(AER.on)aerialUpdate(dt,camera);else if(LRIDE.on)lRideCamera(dt,camera);else updateCamera(dt,camera);updateStreaming(camera,dt,false);updateCarInstances();updateWheelInstances();updateHeadlights(S.lit,px,pz,dt);updateBarks(dt,camera);updateGestures(dt);wpnUpdate(dt,S.lit);updateHUD(dt,fpsShow);
   // audio
   let lnear=1e9,lx=0,lz=0,lsp=0;for(const T of LTRAINS)if(T.near<lnear){lnear=T.near;lx=T.cars[1].position.x;lz=T.cars[1].position.z;lsp=T.v;}
   const riverD=Math.abs(pz-(RIV.zN+RIV.zS)/2)-(RIV.zS-RIV.zN)/2,lakeD=LAKE_X-px;let moving=0;for(const v of NEAR_V)if(v.dist<60&&v!==P.car&&(v.aiSpeed>2||(v.speed&&v.speed()>2)))moving++;
