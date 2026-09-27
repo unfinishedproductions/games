@@ -100,6 +100,21 @@ body{height:100%;margin:0;background:var(--coal);color:var(--ink);overflow:hidde
 #wheel .wpn svg{width:26px;height:26px}
 #wheel .wpn.on{background:#efc76a;border-color:#ffe8b9;color:#2b2112}
 #wheel .wpn:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+/* the tutorial: white subtitles like a picture's, the step it is on, Skip, the last card; and the ghost of a thumb */
+.tutLink{pointer-events:auto;margin-top:14px;padding:6px 10px;background:none;border:0;font:12px system-ui,sans-serif;letter-spacing:.1em;color:#d9d3c2;text-decoration:underline;text-underline-offset:3px;cursor:pointer;touch-action:manipulation}
+.tutLink:hover,.tutLink:focus-visible{color:#fff;outline:none}
+#tut{position:absolute;inset:0;z-index:26;display:none;pointer-events:none}
+#tut .tutSub{position:absolute;left:50%;bottom:calc(27% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(600px,86vw);text-align:center;font:500 1.12rem/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff;text-shadow:0 2px 6px #000,0 0 16px rgba(0,0,0,.9);text-wrap:balance}
+#tut .tutSub.in{animation:tutIn .45s ease-out}
+@keyframes tutIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+#tut .tutStep{position:absolute;left:50%;top:calc(24px + env(safe-area-inset-top,0px));transform:translateX(-50%);font:11px system-ui,sans-serif;letter-spacing:.26em;color:#ece6d6;text-shadow:0 1px 4px #000;font-variant-numeric:tabular-nums}
+#tut .tutSkip{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));top:calc(70px + env(safe-area-inset-top,0px));pointer-events:auto;padding:8px 12px;background:rgba(20,17,12,.55);border:1px solid rgba(255,255,255,.35);border-radius:16px;font:12px system-ui,sans-serif;letter-spacing:.08em;color:#fff;cursor:pointer;touch-action:manipulation}
+#tut .tutEnd{position:absolute;left:50%;bottom:calc(12% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:none;flex-wrap:wrap;justify-content:center;gap:12px;pointer-events:auto;width:max-content;max-width:92vw}
+#tut .tutEnd button{padding:14px 22px;border-radius:8px;font:600 12px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer;touch-action:manipulation;color:#f2e7cf;background:#1e2525cc;border:1px solid #d8c8a24a}
+#tut .tutEnd button:first-child{background:#cba961;color:#141816;border:none}
+#ghost{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(255,255,255,.26);border:2px solid rgba(255,255,255,.65);box-shadow:0 0 18px rgba(255,255,255,.3);pointer-events:none;z-index:27;opacity:0}
+#ghost.down{background:rgba(255,255,255,.45)}
+@media (orientation:landscape) and (max-height:520px){#tut .tutSub{bottom:auto;top:calc(48px + env(safe-area-inset-top,0px));width:min(560px,62vw)}#tut .tutStep{top:calc(18px + env(safe-area-inset-top,0px))}}
 body.touch #radar{display:none}
 body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 @media (max-width:640px){#radar{width:120px;height:120px}#street b{font-size:1.25rem}.mTime b{font-size:2.5rem}#fareBtn{padding:10px 14px}}
@@ -140,15 +155,13 @@ body.touch #speed{top:calc(68px + env(safe-area-inset-top,0px));bottom:auto}
 #lroute .lst.here text,#lroute .lst:hover text,#lroute .lst:focus-visible text{fill:#f4ecd6}
 #lroute .train{fill:#f4ecd6;stroke:#1b1712;stroke-width:3}
 #lride .lrStatus{font:400 1.08rem Limelight,Georgia,serif;letter-spacing:.06em;color:#f4ecd6;text-shadow:0 2px 6px #000;min-height:1.3em}
-#lride .lrHint{font-size:.72rem;color:#d6c396;letter-spacing:.04em;text-shadow:0 1px 4px #000;margin-top:2px}
-#lride .lrHint kbd{font-family:Limelight,Georgia,serif;color:var(--coal);background:var(--enamel);padding:0 .3rem;border-radius:2px}
 #lride .lrOff{display:none;margin:6px auto 0;font:.9rem Limelight,Georgia,serif;letter-spacing:.06em;padding:.55rem 1.2rem;background:rgba(27,23,18,.9);color:#f1e7cf;border:1px solid #c9a14a;border-radius:20px;cursor:pointer;touch-action:manipulation}
 #lride.stop .lrOff{display:inline-block}
 #lride .lrOff:hover,#lride .lrOff:focus-visible{border-color:#e0bd66;outline:none}
 @keyframes lrPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.45)}}
 #lfade{position:fixed;inset:0;z-index:70;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease}
 body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu,body.lriding #wheel{display:none!important}
-@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}.gtap{animation:none;opacity:.6}#wheel .wpn{transition-duration:.01s}}
+@media (prefers-reduced-motion: reduce){#route .fill,#toast,#street{transition:none}#boot span{animation:none;opacity:.7}#lroute .lst.here .dot{animation:none}#lfade{transition-duration:.15s}.gtap{animation:none;opacity:.6}#wheel .wpn{transition-duration:.01s}#tut .tutSub.in{animation:none}}
 </style>
 </head>
 <body>
@@ -169,6 +182,8 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu
 <div id="impactFlash"></div>
 <button id="fareBtn">Pickup fare</button>
 <div id="wheel" role="group" aria-label="Weapons"><button class="wpn on" data-w="fist" aria-label="Fists" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 11V8.2a1.6 1.6 0 0 1 3.2 0V10m0-.8V7.4a1.6 1.6 0 0 1 3.2 0v2.2m0-1.1a1.6 1.6 0 0 1 3.2 0v1.4m0-.4a1.6 1.6 0 0 1 3.2 0v4.3c0 3.2-2.5 5.7-5.7 5.7h-1.6c-2.9 0-5.2-2.2-5.4-5.1L6.3 12c-.1-.9.6-1.6 1.5-1.6h2.4a1.6 1.6 0 0 1 0 3.2H8.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="wpn" data-w="gun" aria-label="Pistol" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5h16.5l1 1.2v1.6h-7.7l-1.1 1.4.9 5.3H8.9l-.6-4.1-1.6-.2-.8-2.6H3z" fill="currentColor"/><path d="M11.2 12.7c.2 1 .9 1.6 1.9 1.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button><button class="wpn" data-w="molotov" aria-label="Molotov cocktail" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.2 8.5V6.2h3.6v2.3l1.7 2.4c.3.4.5.9.5 1.4v7.2c0 .8-.7 1.5-1.5 1.5H9.5c-.8 0-1.5-.7-1.5-1.5v-7.2c0-.5.2-1 .5-1.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8.2 14.2h7.6" stroke="currentColor" stroke-width="1.2"/><path d="M12 6.2c-1.6-.9-2-2.5-.8-4.2.3 1.1 1 1.6 1.7 1.2.6.9.6 2.2-.9 3z" fill="#e9772e"/></svg></button></div>
+<div id="tut" aria-live="polite"><div class="tutStep"></div><div class="tutSub"></div><button class="tutSkip" id="tutSkip" type="button">Skip</button><div class="tutEnd"><button id="tutDrive" type="button">DRIVE AROUND</button><button id="tutGarage" type="button">BACK TO THE GARAGE</button></div></div>
+<div id="ghost" aria-hidden="true"></div>
 <div id="pmenu" role="menu" aria-label="Talk to someone"><span class="pmWho"></span><button role="menuitem" data-a="hello">Say hello</button><button role="menuitem" data-a="way">Ask the way to the L</button><button role="menuitem" data-a="shove">Shove</button></div>
 <div id="aimDot"></div>
 <div id="garageUI"><div id="garageTitle">TAXI WARS &middot; CHICAGO 1928<b>Choose your cab</b></div><div class="garageBottom"><div id="skinName">Yellow Cab</div><div id="skinDetail">327 &middot; ORIGINAL YELLOW</div><div class="garageActions"><div id="garageLoad">
@@ -177,7 +192,7 @@ body.lriding #prompt,body.lriding #touch,body.lriding #radar,body.lriding #pmenu
     <rect class="fill" id="routeFill" x="30" y="25" width="400" height="100" rx="14" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
     <g id="stations"></g>
   </svg>
-  <div id="status">Lighting the showroom&hellip;</div></div><button id="raceButton" style="display:none">RACE</button><button id="freeButton" style="display:none">DRIVE</button></div></div></div>
+  <div id="status">Lighting the showroom&hellip;</div></div><button id="raceButton" style="display:none">RACE</button><button id="freeButton" style="display:none">DRIVE</button></div><button id="tutLink" class="tutLink" type="button" style="display:none">View tutorial</button></div></div>
 <div id="touch"><div id="stick"><canvas id="stickMap" width="264" height="264"></canvas><div id="knob"><span>BRAKE</span></div></div></div>
 <div id="menu"><div class="mInner">
   <div class="mTime"><b id="mClock">4:30 PM</b><span id="mDate">Tuesday, October 16, 1928</span></div>
@@ -3695,15 +3710,14 @@ function lMapXY(x,z){const X0=-330,X1=210,Z0=-330,Z1=370,r=L_R,m0=80,m1=480,n0=3
   const sx=m0+mr+(cx-X0-r)/(X1-X0-2*r)*(m1-m0-2*mr),sy=n0+mr+(cz-Z0-r)/(Z1-Z0-2*r)*(n1-n0-2*mr),dN=Math.abs(z-Z0),dS=Math.abs(z-Z1),dW=Math.abs(x-X0),dE=Math.abs(x-X1),m=Math.min(dN,dS,dW,dE);
   return m===dN?[sx,n0]:m===dS?[sx,n1]:m===dW?[m0,sy]:[m1,sy];}
 function lUI(){if(LUI.el)return;const ns='http://www.w3.org/2000/svg',w=document.createElement('div');w.id='lride';
-  w.innerHTML='<svg id="lroute" viewBox="0 0 560 170" role="group" aria-label="The Loop: pick a station to ride to"><rect class="track" x="80" y="30" width="400" height="100" rx="14"/><path class="fill" d=""/><g class="stns"></g><circle class="train" r="7" cx="0" cy="0"/></svg><div class="lrStatus"></div><div class="lrHint"></div><button class="lrOff" type="button">Get off here</button>';
+  w.innerHTML='<svg id="lroute" viewBox="0 0 560 170" role="group" aria-label="The Loop: pick a station to ride to"><rect class="track" x="80" y="30" width="400" height="100" rx="14"/><path class="fill" d=""/><g class="stns"></g><circle class="train" r="7" cx="0" cy="0"/></svg><div class="lrStatus"></div><button class="lrOff" type="button">Get off here</button>';
   $('game').appendChild(w);const f=document.createElement('div');f.id='lfade';document.body.appendChild(f);
   Object.assign(LUI,{el:w,fill:w.querySelector('.fill'),dot:w.querySelector('.train'),status:w.querySelector('.lrStatus')});const g=w.querySelector('.stns');
   L_STATIONS.forEach((st,i)=>{const q=stationPos(st),[x,y]=lMapXY(q.x,q.z),s=st.side,e=document.createElementNS(ns,'g');e.setAttribute('class','lst');e.setAttribute('tabindex','0');e.setAttribute('role','button');e.setAttribute('aria-label','Ride to '+st.n);
     const c=(cls,r)=>{const o=document.createElementNS(ns,'circle');o.setAttribute('class',cls);o.setAttribute('cx',x);o.setAttribute('cy',y);o.setAttribute('r',r);return o;};
     const t=document.createElementNS(ns,'text');t.setAttribute('x',s===1?x+14:s===3?x-14:x);t.setAttribute('y',s===0?y-13:s===2?y+24:y+4);t.setAttribute('text-anchor',s===1?'start':s===3?'end':'middle');t.textContent=L_SHORT[i];
     e.append(c('hit',17),c('dot',6),t);e.addEventListener('click',()=>lFastTravel(i));e.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ev.stopPropagation();lFastTravel(i);}});g.appendChild(e);LUI.st.push(e);});
-  w.querySelector('.lrOff').addEventListener('click',()=>{LRIDE.offReq=true;});
-  w.querySelector('.lrHint').innerHTML=STATE.touch?'Tap a station to ride straight there':'Click a station to ride straight there · <kbd>E</kbd> gets off at a stop · <kbd>C</kbd> another view';}
+  w.querySelector('.lrOff').addEventListener('click',()=>{LRIDE.offReq=true;});}
 function lRideShow(on){lUI();LUI.el.classList.toggle('on',on);document.body.classList.toggle('lriding',on);if(on){LUI.t=0;lRideUI(0);}}
 // the map, a few times a second: the way you have come since boarding (the loader's fill, going round), the train, the stations
 // passed and the one you stand at, and the next stop
@@ -3775,7 +3789,7 @@ function spawnSpecials(){// newsboys, traffic cops, park sitters, loiterers
 function pedsUpdate(dt,px,pz,simT,cam){const Q=QUAL[quality];let walkers=0;
   for(let i=PEDS.length-1;i>=0;i--){const p=PEDS[i];if(p.inCar)continue;const h=p.h;const d=Math.hypot(h.pos.x-px,h.pos.z-pz);p.dist=d;
    if(p.mode!=='special'&&!p.stall&&d>118&&!(h.ragdoll&&d<60)){removePed(p);continue;}if((p.mode==='walk'||p.mode==='wait'||p.mode==='idle'||p.mode==='flee'||p.mode==='dive'||p.mode==='down')&&!p.stall)walkers++;}
-  const want=Q.peds;let n=0;while(walkers<want&&n++<3){if(spawnWalker(px,pz,!STATE.started))walkers++;}
+  const want=TUT.on?0:Q.peds;let n=0;while(walkers<want&&n++<3){if(spawnWalker(px,pz,!STATE.started))walkers++;}
   for(const p of PEDS){if(p.inCar||p.riding)continue;const h=p.h;if(h.ragdoll){continue;}if(p.mode==='down'){p.timer-=dt;if(p.timer<=0){p.mode='flee';p.panic=6;p.fleeFrom=[px,pz];}continue;}
    p.barkT-=dt;if(p.bk&&p.barkT<=0&&p.dist<22){p.barkT=rnd(7,14);bark(h,pick(BARKS[p.bk]));}
    // vehicle threats & impacts
@@ -3850,7 +3864,7 @@ function clearPeds(L){for(const p of L)if(PEDS.includes(p)&&p.mode==='special')r
 // one or two on a bench, some with the paper
 function seatBench(b){b.sit=[];const n=chance(.35)?2:1,c=Math.cos(b.yaw),s=Math.sin(b.yaw);for(let i=0;i<n;i++){const lx=n===2?(i?.45:-.45):rnd(-.4,.4),lz=.06,x=b.x+lx*c+lz*s,z=b.z-lx*s+lz*c;
    const p=makeNPC(pick(['man','woman','woman','man','worker','priest','nurse']));p.mode='special';p.h.state=chance(.3)?'sitread':'sit';p.h.place(x,b.y0,z,b.yaw);p.home=[x,z];scene.add(p.h.group);if(p.h.state==='sitread')p.h.setProp('paper2');b.sit.push(p);}}
-function updateActivities(dt,px,pz){actT-=dt;if(actT>0)return;actT=1.1;
+function updateActivities(dt,px,pz){actT-=dt;if(actT>0||TUT.on)return;actT=1.1;
   for(let i=ACTS.length-1;i>=0;i--){const a=ACTS[i];if(Math.hypot(a.x-px,a.z-pz)>118){removeAct(a);ACTS.splice(i,1);}}
   for(const b of BENCHES){const d=Math.hypot(b.x-px,b.z-pz);if(d>100){if(b.sit){clearPeds(b.sit);b.sit=null;}b.tried=false;}
    else if(!b.tried&&b.alive&&d<75&&d>22&&!inView(b.x,b.y0+1,b.z,2)){b.tried=true;if(chance(.6))seatBench(b);}}
@@ -4352,20 +4366,21 @@ function wpnAnchor(){if(STATE.touch)return STK.el?{x:STK.cx,y:STK.cy,r:STK.R+34}
 // grow out from the stick's centre one after another.
 function wpnWheel(){const W=$('wheel'),show=STATE.started&&!GAR.on&&!STATE.paused&&!LRIDE.on&&!AER.on&&!EDCAM.on,a=show?wpnAnchor():null;
   if(!a){if(WPN.shown){W.style.display='none';WPN.shown=false;}return;}
-  const items=W.querySelectorAll('.wpn'),base=Math.atan2(innerHeight/2-a.y,innerWidth/2-a.x),spread=.7;
+  const items=W.querySelectorAll('.wpn');
   if(!WPN.shown){W.style.display='block';WPN.shown=true;WPN.slots=null;
     items.forEach(b=>{b.style.transition='none';b.style.transform=`translate(${a.x}px,${a.y}px) scale(.2)`;b.style.opacity='0';});void W.offsetWidth;
     items.forEach((b,i)=>{b.style.transition='';b.style.transitionDelay=i*.09+'s';});}
   const key=Math.round(a.x)+','+Math.round(a.y)+','+GEST.weapon;if(WPN.slots===key)return;WPN.slots=key;
-  items.forEach((b,i)=>{const t=base+(i-1)*spread,x=clamp(a.x+Math.cos(t)*a.r,30,innerWidth-30),y=clamp(a.y+Math.sin(t)*a.r,30,innerHeight-30);
-    b.style.transform=`translate(${x}px,${y}px) scale(${b.dataset.w===GEST.weapon?1:.8})`;b.style.opacity='1';});
+  items.forEach((b,i)=>{const q=wpnSlot(a,i);b.style.transform=`translate(${q.x}px,${q.y}px) scale(${b.dataset.w===GEST.weapon?1:.8})`;b.style.opacity='1';});
   setTimeout(()=>items.forEach(b=>{b.style.transitionDelay='';}),400);}
+// where item i stands (client pixels) round the anchor a: on an arc toward the middle of the screen
+function wpnSlot(a,i){const t=Math.atan2(innerHeight/2-a.y,innerWidth/2-a.x)+(i-1)*.7;return{x:clamp(a.x+Math.cos(t)*a.r,30,innerWidth-30),y:clamp(a.y+Math.sin(t)*a.r,30,innerHeight-30)};}
 // ---------- firing ----------
 // what a shot through screen point (x,y) strikes, nearest first: a person, a car (or a horse), a building, the ground; up to
 // range metres. {x,y,z,k:'ped'|'car'|'horse'|'bldg'|'ground',o} or null (the sky)
 function wpnAim(x,y,range){gRay(x,y);const P=PLAYER,h=P.h;let best=null,bt=range;
   const hit=(k,o,t)=>{if(t<bt){bt=t;best={k,o};}};
-  for(const p of PEDS){const t=p.h;if(p.inCar||t===h||t.attached||t.ragdoll||Math.hypot(t.pos.x-h.pos.x,t.pos.z-h.pos.z)>range)continue;const s=t.scale||1;hit('ped',p,gBox(t.pos.x,t.pos.z,t.yaw,.24*s,.2*s,t.pos.y,t.pos.y+1.75*s,.05));}
+  for(const p of PEDS){const t=p.h;if(p.inCar||t===h||t.attached||t.ragdoll||!t.group.visible||Math.hypot(t.pos.x-h.pos.x,t.pos.z-h.pos.z)>range)continue;const s=t.scale||1;hit('ped',p,gBox(t.pos.x,t.pos.z,t.yaw,.24*s,.2*s,t.pos.y,t.pos.y+1.75*s,.05));}
   for(const v of NEAR_V){if(v.dead||v===P.car)continue;hit('car',v,gBox(v.pos.x,v.pos.z,v.yaw,v.hw,v.hl,v.pos.y,v.pos.y+v.h,0));}
   for(const m of MOUNTS){if(m.dead||m===P.mount)continue;const g=groundAt(m.x,m.z);hit('horse',m,gBox(m.x,m.z,m.yaw,.4,1.2,g,g+2,0));}
   hit('bldg',null,rayCols(_go,_gd,bt));
@@ -4425,8 +4440,87 @@ function wpnUpdate(dt,lit){WPN.cool=Math.max(0,WPN.cool-dt);
     const d=Math.hypot(f.x-cx,f.z-cz);if(d<nd){nd=d;near={f,k};}}
   const L=WPN.light;if(L){if(near){const f=near.f;L.position.set(f.x,f.y+1.4,f.z);L.intensity=(30+50*lit)*near.k*(.8+.2*Math.sin(f.t*23)+.12*Math.sin(f.t*37));}else L.intensity=0;}
   wpnWheel();wpnProp(dt);}
-document.addEventListener('pointerlockerror',()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});
-function lockPointer(){if(STATE.noLock||!canvasEl.requestPointerLock)return;try{const r=canvasEl.requestPointerLock();if(r&&r.catch)r.catch(()=>{STATE.noLock=true;showToast('Drag with the mouse to look around');});}catch(e){STATE.noLock=true;}}
+// ================= TUTORIAL =================
+// "View tutorial" in the garage: you alone by Buckingham Fountain, white subtitles, and the ghost of a thumb (a pale circle) that
+// shows each move on the screen while your character does it. Then it is your turn, and the next move waits until you have done
+// this one: walking, running, jumping, punching, the pistol, getting into your cab and out again. On a desktop the ghost stands
+// for the mouse, and the keys count too.
+const TUT={on:false,i:-1,phase:'',t:0,iz:0,car:null,was:null,hold:0,heard:new Set(),fired:{},steps:null,g:{x:0,y:0,a:0,down:false}};
+const TUT_SPOT={x:485,z:286,yaw:0,car:[476,290,0]},TUT_GOOD=['Swell!','Nice work.','That\'s the stuff.','Attaboy!','Now you\'re cooking.'];
+// the steps: what the subtitle says, the demonstration (its length), what your turn asks for, and how it knows you did it
+function tutSteps(){const T=STATE.touch,tap=T?'tap':'click',Tap=T?'Tap':'Click';return[
+  {say:'Chicago, 1928. Here\'s how to get about.',auto:3},
+  {say:T?'Your thumb is the stick. Put it down near the bottom of the screen and push up to walk.':'Walk with W A S D. Drag with the mouse to look around.',
+   try:'Your turn: walk a few steps.',demo:tutDemoWalk,len:2.6,ok:()=>Math.hypot(PLAYER.h.pos.x-TUT.was.x,PLAYER.h.pos.z-TUT.was.z)>3},
+  {say:T?'Tap your character to break into a run.':'Click your character (or hold Shift) to run.',try:`Your turn: ${tap} him, then walk.`,demo:tutDemoRun,len:2.8,
+   ok:dt=>(TUT.hold=PLAYER.h.speed>4.2&&!PLAYER.car?TUT.hold+dt:0)>.25},
+  {say:T?'Swipe up from his feet to jump.':'Drag up from his feet (or press Space) to jump.',try:T?'Your turn: swipe up from his feet.':'Your turn: jump.',demo:tutDemoJump,len:1.6,ok:()=>TUT.heard.has('jumped')},
+  {say:T?'Swipe round his arm to throw a punch.':'Drag round his arm (or just click) to throw a punch.',try:'Your turn: throw a punch.',demo:tutDemoPunch,len:1.7,ok:()=>TUT.heard.has('punched')},
+  {say:T?'Pick the pistol on the wheel by your stick, then tap where you want to shoot.':'Pick the pistol on the wheel by the map (or press 2), then click where you want to shoot.',
+   try:`Your turn: take the pistol and fire. The bottle works the same way: ${tap} where it should land.`,demo:tutDemoGun,len:2.9,ok:()=>TUT.heard.has('shot'),after:()=>wpnSelect('fist')},
+  {say:T?'Your cab is waiting. Double-tap it to get in; from further off you\'ll hurry over.':'Your cab is waiting. Double-click it to get in (or walk up and press E).',
+   try:`Your turn: double-${tap} the cab.`,demo:tutDemoCar,len:1.8,ok:()=>!!TUT.car&&PLAYER.car===TUT.car,before:tutCab},
+  {say:T?'To get out, double-tap your car.':'To get out, double-click your car (or press E).',try:`Your turn: double-${tap} the cab to get out.`,demo:tutDemoCar,len:1.8,ok:()=>!PLAYER.car},
+  {say:`That's the lot. ${Tap} someone near you to talk to them. The city's yours.`,end:true}];}
+// ---------- the ghost thumb's moves (t: seconds into the move; live: the character does it too) ----------
+const tutSeg=(t,a,b)=>clamp((t-a)/(b-a),0,1),tutEase=k=>k*k*(3-2*k);
+function tutPt(x,y,z){_gp.set(x,y,z).project(camera);return[(_gp.x*.5+.5)*innerWidth,(-_gp.y*.5+.5)*innerHeight];}
+function tutSelf(dy){const h=PLAYER.h;return tutPt(h.pos.x,h.pos.y+dy,h.pos.z);}
+// down on the stick, up, hold while he walks, let go (on a desktop, no ghost: he just walks)
+function tutDemoWalk(t,live,G){const on=t>.55&&t<2.1;if(live)TUT.iz=on?.75:0;if(!STATE.touch||!STK.el)return;const up=tutEase(tutSeg(t,.55,1))*42*(1-tutSeg(t,2.1,2.4));
+  G.x=STK.cx;G.y=STK.cy-up;G.a=tutSeg(t,0,.3)*(1-tutSeg(t,2.2,2.6));G.down=t>.35&&t<2.1;
+  if(live&&STK.id===null){if(on){STK.mode='drive';STK.kx=0;STK.ky=-up;}else if(STK.mode==='drive'&&t>=2.1){STK.mode='returning';}}}
+// in from the side, a tap on his chest: he runs a moment
+function tutDemoRun(t,live,G){const [cx,cy]=tutSelf(1.2),k=tutEase(tutSeg(t,0,.45));G.x=cx+60*(1-k);G.y=cy+30*(1-k);G.a=tutSeg(t,0,.2)*(1-tutSeg(t,.9,1.2));G.down=t>.45&&t<.62;
+  if(!live)return;if(t>=.62&&!TUT.fired.run){TUT.fired.run=1;GEST.sprint=true;GEST.still=0;}TUT.iz=t>.62&&t<2.4?1:0;}
+// from his feet up past his head: he jumps
+function tutDemoJump(t,live,G){const [fx,fy]=tutSelf(.12),[,hy]=tutSelf(1.75),k=tutEase(tutSeg(t,.35,.7));G.x=fx;G.y=fy+(hy-fy)*k;G.a=tutSeg(t,0,.25)*(1-tutSeg(t,.85,1.1));G.down=t>.3&&t<.72;
+  if(live&&t>=.7&&!TUT.fired.jump){TUT.fired.jump=1;PRESS.Space=true;}}
+// over the top of his arm in an arc: a punch
+function tutDemoPunch(t,live,G){const [cx,cy]=tutSelf(1.3),a=Math.PI*(1+tutEase(tutSeg(t,.3,.8)));G.x=cx+Math.cos(a)*42;G.y=cy+Math.sin(a)*42;G.a=tutSeg(t,0,.25)*(1-tutSeg(t,.95,1.2));G.down=t>.28&&t<.82;
+  if(live&&t>=.8&&!TUT.fired.punch){TUT.fired.punch=1;PRESS.KeyF=true;}}
+// to the pistol on the wheel, a tap; over to a spot on the ground a dozen metres ahead of him, two shots; the fists back in hand
+// for your turn
+function tutDemoGun(t,live,G){const a=wpnAnchor(),gs=a?wpnSlot(a,1):{x:innerWidth/2,y:innerHeight-60},h=PLAYER.h,ax=h.pos.x-Math.sin(CAM.yaw)*12,az=h.pos.z-Math.cos(CAM.yaw)*12,[tx,ty]=tutPt(ax,groundAt(ax,az)+.05,az);
+  if(t<.6){const k=tutEase(tutSeg(t,0,.5));G.x=lerp(innerWidth*.55,gs.x,k);G.y=lerp(innerHeight*.6,gs.y,k);}else{const k=tutEase(tutSeg(t,.75,1.3));G.x=lerp(gs.x,tx,k);G.y=lerp(gs.y,ty,k);}
+  G.a=tutSeg(t,0,.2)*(1-tutSeg(t,2.5,2.9));G.down=t>.5&&t<.62||t>1.35&&t<1.47||t>1.75&&t<1.87;if(!live)return;
+  const once=(k,at,f)=>{if(t>=at&&!TUT.fired[k]){TUT.fired[k]=1;f();}};
+  once('arm',.62,()=>wpnSelect('gun'));once('s1',1.47,()=>wpnFire(tx,ty));once('s2',1.87,()=>wpnFire(tx+14,ty-6));once('fist',2.6,()=>wpnSelect('fist'));}
+// two quick taps on the cab (you do the getting in and out yourself)
+function tutDemoCar(t,live,G){const v=TUT.car;if(!v)return;[G.x,G.y]=tutPt(v.pos.x,v.pos.y+1,v.pos.z);G.a=tutSeg(t,0,.25)*(1-tutSeg(t,1.3,1.6));G.down=t>.45&&t<.57||t>.67&&t<.79;}
+// your cab (the one you picked in the garage) parked beside the fountain; if you have wandered off, near you instead
+function tutCab(){const P=PLAYER,h=P.h;if(TUT.car&&!TUT.car.dead)return;let [x,z,yaw]=TUT_SPOT.car;
+  if(Math.hypot(h.pos.x-x,h.pos.z-z)>25){const ok=(px,pz)=>!isWater(px,pz)&&Math.hypot(px-FOUNT.x,pz-FOUNT.z)>37&&Math.abs(groundAt(px,pz)-groundAt(h.pos.x,h.pos.z))<.3&&!collideCircle(_v3.set(px,0,pz),1.6,h.pos.y,1.5);
+    for(let k=0;k<8;k++){const a=h.yaw+Math.PI/2+k*Math.PI/4,px=h.pos.x+Math.sin(a)*8,pz=h.pos.z+Math.cos(a)*8;if(ok(px,pz)){x=px;z=pz;yaw=h.yaw;break;}}}
+  if(GAME.pcar&&!GAME.pcar.dead&&GAME.pcar!==P.car)GAME.pcar.remove();const v=spawnHeroCab(GAR.sel===1?1:0);v.place(x,z,yaw);v.mode='parked';GAME.pcar=v;TUT.car=v;}
+// ---------- running it ----------
+function tutBegin(){const P=PLAYER,S=TUT_SPOT;if(!TUT.steps)GEST.on.push(k=>{if(TUT.on)TUT.heard.add(k);});   // it hears what the gestures and the game did
+  TUT.on=true;TUT.i=-1;TUT.car=null;TUT.iz=0;TUT.steps=tutSteps();
+  if(P.mount)dismountHorse(P.mount,true);if(P.car)exitVehicle();if(P.h.ragdoll)P.h.ragdoll.remove();P.swim=false;GEST.goal=null;GEST.sprint=false;gMenuClose(null);wpnSelect('fist');
+  if(GAME.pcar&&!GAME.pcar.dead){GAME.pcar.remove();GAME.pcar=null;}
+  // just you: the passers-by go (they come back after), the rest keep out of sight; no traffic left by the fountain
+  for(const p of PEDS.slice())if(!p.inCar&&p.mode!=='special')removePed(p);clearArea((x,z)=>Math.hypot(x-S.x,z-S.z)<70);
+  P.h.place(S.x,groundAt(S.x,S.z),S.z,S.yaw);P.vel.set(0,0,0);CAM.yaw=S.yaw+Math.PI;CAM.pitch=.12;CAM.lastCar=null;
+  const el=$('tut');el.style.display='block';el.querySelector('.tutEnd').style.display='none';tutNext();}
+function tutNext(){TUT.i++;const s=TUT.steps[TUT.i];if(!s)return;if(s.before)s.before();TUT.phase=s.end?'end':'say';TUT.t=0;TUT.fired={};TUT.heard.clear();TUT.iz=0;tutSay(s.say);
+  const n=TUT.steps.length-2;$('tut').querySelector('.tutStep').textContent=s.auto||s.end?'':TUT.i+' / '+n;if(s.end)$('tut').querySelector('.tutEnd').style.display='flex';}
+function tutSay(text){const el=$('tut').querySelector('.tutSub');el.textContent=text;el.classList.remove('in');void el.offsetWidth;el.classList.add('in');}
+// every frame: the subtitle's step moves on (say, show, your turn, well done), and the ghost is drawn where the step puts it
+function tutUpdate(dt){if(!TUT.on)return;const s=TUT.steps[TUT.i],G=TUT.g;G.a=0;if(!s)return;TUT.t+=dt;
+  if(s.auto){if(TUT.t>s.auto)tutNext();}
+  else if(TUT.phase==='say'){if(TUT.t>1.5){TUT.phase='demo';TUT.t=0;TUT.fired={};}}
+  else if(TUT.phase==='demo'){s.demo(TUT.t,true,G);if(TUT.t>s.len){TUT.iz=0;TUT.phase='try';TUT.t=0;TUT.heard.clear();TUT.hold=0;TUT.was=PLAYER.h.pos.clone();tutSay(s.try);}}
+  else if(TUT.phase==='try'){const lt=TUT.t%4.5-1.4;if(lt>0&&lt<s.len){s.demo(lt,false,G);G.a*=.5;}
+    if(s.ok(dt)){TUT.phase='good';TUT.t=0;tutSay(pick(TUT_GOOD));if(s.after)s.after();}}
+  else if(TUT.phase==='good'&&TUT.t>1.4)tutNext();
+  tutGhost(G);}
+function tutGhost(G){const el=$('ghost');el.style.opacity=String(G.a);if(G.a>0){el.style.transform=`translate(${G.x}px,${G.y}px) scale(${G.down?.8:1})`;el.classList.toggle('down',!!G.down);}}
+// out of the tutorial: back to the garage, or on into the city from the fountain (the passers-by come back)
+function tutStop(){if(!TUT.on)return;TUT.on=false;TUT.iz=0;$('tut').style.display='none';TUT.g.a=0;tutGhost(TUT.g);}
+function tutFinish(how){tutStop();if(how==='garage')showGarage();}
+function tutSkip(){if(!TUT.on)return;TUT.i=TUT.steps.length-2;tutNext();}
+document.addEventListener('pointerlockerror',()=>{STATE.noLock=true;});
+function lockPointer(){if(STATE.noLock||!canvasEl.requestPointerLock)return;try{const r=canvasEl.requestPointerLock();if(r&&r.catch)r.catch(()=>{STATE.noLock=true;});}catch(e){STATE.noLock=true;}}
 // ================= PLAYER =================
 const PLAYER={h:null,car:null,mount:null,vel:new THREE.Vector3(),onGround:true,swim:false,down:0,punchT:0,climb:0};
 const CAM={yaw:Math.PI,pitch:.12,dist:4.2,shake:0,idle:0,presets:[1,1.45,.78],pi:0,pos:new THREE.Vector3(),look:new THREE.Vector3(),lastCar:null,tgt:new THREE.Vector3(),lastMount:null};
@@ -4445,7 +4539,7 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
   if(rideUpdate(dt))return;
   for(let i=0;i<3;i++)if(PRESS['Digit'+(i+1)])wpnSelect(WPN.list[i]);
   if(PRESS.KeyU&&!P.car&&!h.ragdoll&&!P.swim){const hv=nearestHitched(h.pos,2.6);if(hv)untieHorse(hv);}
-  const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
+  const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y+TUT.iz;
   if(PRESS.KeyE){if(P.car){if(P.car.speed()<6)exitVehicle();}else if(!h.ragdoll&&!P.swim){const v=nearestVehicle(h.pos,3.2);if(v)enterVehicle(v);}}
   if(P.car){const v=P.car;const inp={steer:clamp(-ix,-1,1),thr:clamp(iz,-1,1),brk:0,hand:KEYS.Space?1:0,run:KEYS.ShiftLeft||KEYS.ShiftRight,rock:clamp(ix,-1,1)};if(v.wagon&&inp.thr<0&&v.speed()<.3)inp.thr=-.5;if(TOUCH.brake){inp.thr=0;inp.brk=1;}P.brake=inp.brk>0||(iz<0&&vLp(v)>1);if(GAME.freeze){inp.thr=0;inp.brk=1;inp.hand=1;}
    const vL=v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);if(!v.wagon&&iz<0&&vL>1)inp.brk=1;
@@ -4470,16 +4564,15 @@ function playerUpdate(dt){const P=PLAYER,h=P.h;if(LRIDE.on||LRIDE.busy){if(LRIDE
   if(water&&h.pos.y<WATER_Y-.6){if(!P.swim){P.swim=true;splash(h.pos.x,h.pos.z,Math.max(3,-P.vel.y*2));}const wy=waterHeight(h.pos.x,h.pos.z)-1.25;h.pos.y+=(wy-h.pos.y)*Math.min(1,dt*4);P.vel.y=0;h.state='swim';h.pitch=lerp(h.pitch||0,1.25,dt*3);h.speed=Math.hypot(P.vel.x,P.vel.z);
    if(chance(dt*4*(h.speed>.3?1:.2)))splashRipple(h.pos.x,h.pos.z,.8,.05);
    if(PRESS.Space){for(const L of LADDERS){if(Math.hypot(L.x-h.pos.x,L.z-h.pos.z)<3.2){P.swim=false;h.pitch=0;h.place(L.top[0],CURB,L.top[1],h.yaw);P.vel.set(0,0,0);showToast('Climbed out');break;}}
-    if(P.swim){const tx=h.pos.x+Math.sin(h.yaw)*2.2,tz=h.pos.z+Math.cos(h.yaw)*2.2;if(!isWater(tx,tz)&&groundAt(tx,tz)>WATER_Y-.3&&groundAt(tx,tz)<WATER_Y+2.4){const tx2=h.pos.x+Math.sin(h.yaw)*3,tz2=h.pos.z+Math.cos(h.yaw)*3;P.swim=false;h.pitch=0;h.place(tx2,groundAt(tx2,tz2),tz2,h.yaw);P.vel.set(0,0,0);AUD.splash(3,h.pos.x,h.pos.z);}
-     else showToast('Swim to a ladder or the lake wall, then press Space');}}
+    if(P.swim){const tx=h.pos.x+Math.sin(h.yaw)*2.2,tz=h.pos.z+Math.cos(h.yaw)*2.2;if(!isWater(tx,tz)&&groundAt(tx,tz)>WATER_Y-.3&&groundAt(tx,tz)<WATER_Y+2.4){const tx2=h.pos.x+Math.sin(h.yaw)*3,tz2=h.pos.z+Math.cos(h.yaw)*3;P.swim=false;h.pitch=0;h.place(tx2,groundAt(tx2,tz2),tz2,h.yaw);P.vel.set(0,0,0);AUD.splash(3,h.pos.x,h.pos.z);}}}
    return;}
   P.swim=false;h.pitch=lerp(h.pitch||0,0,Math.min(1,dt*6));
-  if(PRESS.Space&&P.onGround){P.vel.y=4.6;P.onGround=false;}P.vel.y-=9.8*dt;h.pos.y+=P.vel.y*dt;if(h.pos.y<=gy){if(P.vel.y<-9){knockDown(h,P.vel.x,0,P.vel.z);P.down=0;}h.pos.y=gy;P.vel.y=0;P.onGround=true;}else if(h.pos.y>gy+.08)P.onGround=h.pos.y-gy<.12;
+  if(PRESS.Space&&P.onGround){P.vel.y=4.6;P.onGround=false;gEvent('jumped');}P.vel.y-=9.8*dt;h.pos.y+=P.vel.y*dt;if(h.pos.y<=gy){if(P.vel.y<-9){knockDown(h,P.vel.x,0,P.vel.z);P.down=0;}h.pos.y=gy;P.vel.y=0;P.onGround=true;}else if(h.pos.y>gy+.08)P.onGround=h.pos.y-gy<.12;
   if(h.pos.y-gy<.5&&P.onGround)h.pos.y+=(gy-h.pos.y)*Math.min(1,dt*18);
   h.speed=Math.hypot(P.vel.x,P.vel.z);h.state=!P.onGround&&h.pos.y-gy>.6?'fall':'idle';
   h.pos.x=clamp(h.pos.x,MAP.x0-2,MAP.x1+300);h.pos.z=clamp(h.pos.z,MAP.z0-3,MAP.z1+3);
   if(GEST.face!==null){h.yaw=GEST.face;GEST.face=null;}
-  if(PRESS.KeyF&&h.pt<=0){P.punchT=h.punch()||.2;setTimeout(()=>AUD.swish(),Math.max(0,P.punchT-.14)*1000);}
+  if(PRESS.KeyF&&h.pt<=0){P.punchT=h.punch()||.2;setTimeout(()=>AUD.swish(),Math.max(0,P.punchT-.14)*1000);gEvent('punched');}
   if(P.punchT>0){P.punchT-=dt;if(P.punchT<=0){const fx2=Math.sin(h.yaw),fz2=Math.cos(h.yaw);for(const p of PEDS){const t=p.h;if(t.ragdoll||t.attached)continue;const dx=t.pos.x-h.pos.x,dz=t.pos.z-h.pos.z,d=Math.hypot(dx,dz);if(d<1.25&&(dx*fx2+dz*fz2)/(d||1)>.45){
        knockDown(t,fx2*4,2.2,fz2*4,{y:t.pos.y+1.5,spin:-2});p.mode='down';p.timer=rnd(3,6);AUD.punch(t.pos.x,t.pos.z);bark(t,pick(BARKS.punch));panicAround(t.pos.x,t.pos.z,15);STATE.punches++;break;}}
      for(const d of DEBRIS){const dx=d.pos.x-h.pos.x,dz=d.pos.z-h.pos.z;if(Math.hypot(dx,dz)<1.3){d.v.set(fx2*4,2,fz2*4);d.w.set(rnd(-4,4),rnd(-4,4),rnd(-4,4));d.sleep=0;}}}}
@@ -4509,7 +4602,7 @@ function nearestMount(p,maxD){let best=null,bd=maxD;for(const m of MOUNTS){if(m.
 function blendFrom(h){h.from=h.bones.map(b=>b.quaternion.clone());h.fromHip=h.bones[1].position.clone();h.blend=1;}
 // swing up from the near (left) side, settle into the saddle
 function mountHorse(m,h){m.rider=h;h.mount=m;m.wantOff=false;m.speed=0;m.turn=0;m.mountT=0;m.from={x:h.pos.x,y:h.pos.y,z:h.pos.z,yaw:h.yaw};blendFrom(h);h.state='ride';h.rideS={acc:0,sp:0,look:0};
-  if(h===PLAYER.h){PLAYER.mount=m;showToast(STATE.touch?'Riding · stick to go & steer, RUN gallops, E gets off':'Riding · W go, S whoa, A/D steer, 1-4 pace, Shift gallop, Space jump, E get off');}}
+  if(h===PLAYER.h){PLAYER.mount=m;showToast(m.name);}}
 function dismountHorse(m,quiet){const h=m.rider;if(!h)return;m.rider=null;m.speed=0;m.wantOff=false;h.mount=null;const s=Math.sin(m.yaw),c=Math.cos(m.yaw);const x=m.x+c*1.0,z=m.z-s*1.0;
   blendFrom(h);h.state='idle';h.speed=0;h.place(x,groundAt(x,z),z,m.yaw);if(h===PLAYER.h){PLAYER.mount=null;PLAYER.vel.set(0,0,0);PLAYER.onGround=true;}}
 function seatRider(m,h,dt){m.h.seatWorld(_v3);const tx=_v3.x,ty=_v3.y+.08-.98,tz=_v3.z;
@@ -4537,7 +4630,7 @@ function untieHorse(v){const H=v.horse;H.group.getWorldPosition(_v3);const x=_v3
   H.dispose();v.horse=null;v.unhitched=true;if(v.mode==='ai'||v.mode==='dyn'){v.mode='parked';v.vel.set(0,0,0);v.aiSpeed=0;v.r=0;}
   if(v.driver&&v.driver!==PLAYER.h){const d=v.driver,dp=d.ped;detachFromVehicle(d,v);v.driver=null;if(dp){dp.inCar=null;dp.mode='flee';dp.panic=4;dp.fleeFrom=[v.pos.x,v.pos.z];}
     setTimeout(()=>bark(d,pick(['Hey! That\'s my horse!','Horse thief! Horse thief!','Somebody stop that man, he\'s got my horse!'])),300);panicAround(v.pos.x,v.pos.z,10);}
-  const m=new Mount({coat,colors:{saddleOn:0,halterOn:1},name:COAT_NAMES[coat]+' Carriage Horse',x,z,yaw});showToast('Untied the '+m.name.toLowerCase()+' · E to ride bareback');return m;}
+  const m=new Mount({coat,colors:{saddleOn:0,halterOn:1},name:COAT_NAMES[coat]+' Carriage Horse',x,z,yaw});showToast('Untied the '+m.name.toLowerCase());return m;}
 // ---------- horses in the world: idle life, cars and people against them ----------
 function updateMounts(dt,px,pz){const P=PLAYER;
   for(let i=MOUNTS.length-1;i>=0;i--){const m=MOUNTS[i];if(m.dead)continue;m.dist=Math.hypot(m.x-px,m.z-pz);
@@ -4617,7 +4710,7 @@ function spawnVehicleAt(kind){const sp=spawnSpot(WAGON_KINDS[kind]?7.5:5.5);let 
   v.place(sp.x,sp.z,sp.yaw);v.mode='parked';v.spawned=true;
   for(let i=VEHICLES.length-1;i>=0;i--){const o=VEHICLES[i];if(o===v||o===PLAYER.car||o===GAME.pcar||o===GAME.rival||o.mode==='tram'||o.mode==='boat')continue;if(Math.hypot(o.pos.x-sp.x,o.pos.z-sp.z)<v.rad+o.rad*.6+.5)o.remove();}
   showToast(v.md.name);return v;}
-function spawnHorseAt(coat){const sp=spawnSpot(3.4);const m=new Mount({coat,x:sp.x,z:sp.z,yaw:sp.yaw+Math.PI/2});m.temp=true;showToast(m.name+' · walk up and press E to ride');return m;}
+function spawnHorseAt(coat){const sp=spawnSpot(3.4);const m=new Mount({coat,x:sp.x,z:sp.z,yaw:sp.yaw+Math.PI/2});m.temp=true;showToast(m.name);return m;}
 function spawnStallAt(kind,fruit){const sp=spawnSpot(kind==='crate'?2.2:3.2);const st=makeStall(sp.x,sp.z,sp.yaw+Math.PI,kind,fruit,true);showToast(st.name);return st;}
 function spawnPersonAt(kind){const sp=spawnSpot(2.2);const p=makeNPC(kind);p.mode='idle';p.timer=rnd(4,8);p.h.place(sp.x,groundAt(sp.x,sp.z),sp.z,sp.yaw+Math.PI);scene.add(p.h.group);relinkPed(p);
   if(kind==='newsboy'){p.h.setProp('paper');}showToast(PEOPLE_KIND_NAMES[kind]);return p;}
@@ -4925,10 +5018,8 @@ function updateHUD(dt,fps){toastT-=dt;if(toastT<0)$('toast').style.opacity=Math.
    if(cand&&cand===STREET.cand)STREET.held+=.2;else{STREET.cand=cand;STREET.held=0;}
    if(cand&&STREET.held>=.6&&cand!==STREET.cur){STREET.cur=cand;const el=$('street');el.querySelector('b').textContent=cand;el.querySelector('small').textContent=districtAt(pos.x,pos.z);el.classList.add('on');STREET.t=2.8;}
    if(STATE.showFps)$('fps').textContent=fps+' fps';
-   const pr=$('prompt');let msg='',hv=null;if(!P.car&&!P.mount&&!P.h.ragdoll&&!P.swim){const mm=nearestMount(P.h.pos,2.8),v=nearestVehicle(P.h.pos,3.2);hv=nearestHitched(P.h.pos,2.6);
-    if(mm)msg=`<kbd>E</kbd>Ride the ${mm.name}`;else if(v)msg=`<kbd>E</kbd>${v.driver?'Commandeer':'Take'} the ${v.md.name}`;if(hv)msg+=(msg?' &nbsp; ':'')+'<kbd>U</kbd>Untie the horse';}if(P.swim)msg='<kbd>Space</kbd>Climb out at a ladder or low wall';
-   if(!msg&&!LRIDE.on&&!P.car&&!P.mount&&!P.h.ragdoll){const b=lBoardable(P.h.pos);if(b)msg=b.T?'<kbd>E</kbd>Board the L \u00b7 '+(b.T.track===0?'Outer Loop, clockwise':'Inner Loop, counterclockwise'):lWaitMsg(b.p);}
-   if(P.h.ragdoll&&!P.car)msg='';if(AER.on)msg='';pr.innerHTML=msg;pr.style.display=msg?'block':'none';}
+   // the one standing line: when the next L train comes, on a platform (no instructions: the tutorial has those)
+   const pr=$('prompt');let msg='';if(!LRIDE.on&&!P.car&&!P.mount&&!P.h.ragdoll&&!AER.on&&!TUT.on){const b=lBoardable(P.h.pos);if(b&&!b.T)msg=lWaitMsg(b.p);}pr.textContent=msg;pr.style.display=msg?'block':'none';}
   // the simple speed readout
   const v=P.car,sp=$('speed');if(v&&!AER.on){sp.style.display='block';const vL=v.vel.x*Math.sin(v.yaw)+v.vel.z*Math.cos(v.yaw);$('mph').textContent=Math.round(Math.abs(vL)*2.23694);
    let g;if(v.wagon)g=Math.abs(vL)>.3?'GIDDAP':'WHOA';else{const gear=vL<-.2?'R':Math.abs(vL)<.15?'N':['1ST','2ND','HIGH'][v.gear];const act=vL<-.2?'REVERSE':(P.brake||TOUCH.brake)&&Math.abs(vL)>.3?'BRAKING':(P.thr||0)>.1?'DRIVING':Math.abs(vL)>.2?'COASTING':'IDLE';g=gear+' \u00b7 '+act;}
@@ -5218,7 +5309,7 @@ function updateLampFX(lit){if(!LFX.cones)return;const on=lit>.02;LFX.cones.visib
 // ---------------- aerial survey: fly over the city with only the low-poly shells streamed in ----------------
 const AER={on:false,x:0,z:0,h:260,yaw:0,pitch:.9,t:new THREE.Vector3(),up:0,down:0};
 function toggleAerial(){AER.on=!AER.on;const P=PLAYER,src=P.car?P.car.pos:P.h.pos;
-  if(AER.on){AER.x=src.x;AER.z=src.z+150;AER.h=240;AER.yaw=0;AER.pitch=.85;renderer.shadowMap.autoUpdate=false;showToast('Aerial survey · drag to look · ▲▼ to climb · M to land');}
+  if(AER.on){AER.x=src.x;AER.z=src.z+150;AER.h=240;AER.yaw=0;AER.pitch=.85;renderer.shadowMap.autoUpdate=false;showToast('Aerial survey');}
   else{renderer.shadowMap.autoUpdate=true;renderer.shadowMap.needsUpdate=true;camera.far=QUAL[quality].far;camera.fov=62;camera.updateProjectionMatrix();CAM.lastCar=undefined;}
   for(const p of PEDS)p.h.group.visible=!AER.on;const pad=document.getElementById('aerPad');if(pad)pad.style.display=AER.on?'flex':'none';const b=document.getElementById('aerBtn');if(b)b.textContent=AER.on?'▼ Land':'✈ Aerial';}
 function aerialUpdate(dt,cam){const ix=(KEYS.KeyD||KEYS.ArrowRight?1:0)-(KEYS.KeyA||KEYS.ArrowLeft?1:0)+TOUCH.x,iz=(KEYS.KeyW||KEYS.ArrowUp?1:0)-(KEYS.KeyS||KEYS.ArrowDown?1:0)-TOUCH.y;
@@ -5273,7 +5364,8 @@ function buildGarage(){const S=new THREE.Scene();S.background=new THREE.Color(0x
     if(Math.hypot(dx,dy)<16){GAR.ptr.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);GAR.ray.setFromCamera(GAR.ptr,GAR.cam);const roots=GAR.cars.filter(Boolean).map(c=>c.root);const hit=GAR.ray.intersectObjects(roots,true)[0];if(hit){let o=hit.object;while(o.parent&&o.parent!==GAR.scene)o=o.parent;chooseSkin(GAR.cars.findIndex(c=>c&&c.root===o));}}
     else{if(dx<-35)chooseSkin(GAR.sel+1);if(dx>35)chooseSkin(GAR.sel-1);}GAR.swipe=null;GAR.offset=0;};
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
-  $('raceButton').onclick=()=>leaveGarage('race');$('freeButton').onclick=()=>leaveGarage('free');
+  $('raceButton').onclick=()=>leaveGarage('race');$('freeButton').onclick=()=>leaveGarage('free');$('tutLink').onclick=()=>leaveGarage('tutorial');
+  $('tutDrive').onclick=()=>tutFinish('drive');$('tutGarage').onclick=()=>tutFinish('garage');$('tutSkip').onclick=()=>tutSkip();
   addEventListener('keydown',e=>{if(!GAR.on)return;if(e.code==='ArrowLeft')chooseSkin(GAR.sel-1);if(e.code==='ArrowRight')chooseSkin(GAR.sel+1);if(e.code==='Enter'){e.preventDefault();leaveGarage('race');}});
   $('garageBtn').onclick=()=>showGarage();}
 const GAR_SLOTS=[['Yellow Cab','327 · ORIGINAL YELLOW'],['Checker Cab','327 · FOREST GREEN / CHECKER'],[null,'16 HANDS · ENGLISH SADDLE · HALTER']];
@@ -5294,7 +5386,7 @@ function garageOwnMaterials(root){const map=new Map();
 // (garageLight is gone: every car in the showroom takes the room's light as it is, as in the ChatGPT build)
 // fade the showroom up from black: the cover lifts while the spotlight, fill and rim lights come up together
 function revealGarage(ms=1700){return new Promise(res=>{GAR.fade={t0:performance.now(),ms,done:res};const b=$('boot');b.classList.add('gone');setTimeout(()=>{b.style.display='none';},ms+300);});}
-function showGarage(){lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';
+function showGarage(){tutStop();lEndRide();endRace(true);cancelFare(true);endHunt();GAR.on=true;STATE.paused=false;$('menu').style.display='none';$('mapView').style.display='none';$('hud').style.display='none';$('touch').style.display='none';$('fareBtn').style.display='none';
   STATE.skipPause=true;if(document.pointerLockElement&&document.exitPointerLock)document.exitPointerLock();$('garageUI').style.display='block';chooseSkin(GAR.sel);
   for(let i=0;i<GAR.cars.length;i++)if(GAR.cars[i])GAR.cars[i].root.position.x=(i-GAR.sel)*3.35;GAR.cam.aspect=innerWidth/innerHeight;GAR.cam.updateProjectionMatrix();}
 function garageFrame(dt){for(let i=0;i<GAR.cars.length;i++){const c=GAR.cars[i];if(!c)continue;c.root.position.x=lerp(c.root.position.x,(i-GAR.sel)*3.35+GAR.offset,Math.min(1,dt*7));}// (lit only by the room, as in the ChatGPT build)
@@ -5303,7 +5395,7 @@ function garageFrame(dt){for(let i=0;i<GAR.cars.length;i++){const c=GAR.cars[i];
   if(GAR.cam.aspect!==innerWidth/innerHeight){GAR.cam.aspect=innerWidth/innerHeight;GAR.cam.updateProjectionMatrix();}renderFrame(GAR.scene,GAR.cam,dt,0,GAR_LOOK);}
 function leaveGarage(how){if(!CITY_READY)return;GAR.on=false;$('garageUI').style.display='none';for(const k in PRESS)delete PRESS[k];
   if(!STATE.started)startGame();else{$('hud').style.display='block';if(STATE.touch){$('touch').style.display='block';}else{STATE.skipPause=true;lockPointer();}}
-  if(how==='race')startRace();else startFree();last=performance.now();}
+  if(how==='race')startRace();else if(how==='tutorial')tutBegin();else startFree();last=performance.now();}
 // ---------- the player's cab ----------
 function putPlayerInHeroCab(x,z,yaw){const P=PLAYER;if(P.mount)dismountHorse(P.mount,true);if(P.car){exitVehicle();}if(P.h.ragdoll)P.h.ragdoll.remove();P.swim=false;
   if(GAME.pcar&&!GAME.pcar.dead){if(GAME.pcar.pass)GAME.pcar.pass=null;GAME.pcar.remove();}
@@ -5313,9 +5405,9 @@ function clearArea(fn){for(let i=VEHICLES.length-1;i>=0;i--){const v=VEHICLES[i]
 function startFree(){const x=207.3,z=-205,P=PLAYER,me=playerHorse();
   if(GAR.sel===2){if(P.car)exitVehicle();if(P.mount)dismountHorse(P.mount,true);if(P.h.ragdoll)P.h.ragdoll.remove();P.swim=false;if(GAME.pcar&&!GAME.pcar.dead){GAME.pcar.remove();GAME.pcar=null;}
    clearArea((vx,vz)=>Math.hypot(vx-x,vz-z-5.5)<12);me.place(x-2.9,z+5.5,0);P.h.place(x-1.95,groundAt(x-1.95,z+5.5),z+5.5,-Math.PI/2);P.vel.set(0,0,0);CAM.yaw=Math.PI/2;CAM.pitch=.16;CAM.lastCar=null;
-   showToast(STATE.touch?'Your horse is saddled \u00b7 tap E to ride':'Your horse is saddled \u00b7 walk up and press E to ride');return;}
+   showToast('Your horse is saddled');return;}
   clearArea((vx,vz)=>Math.abs(vx-x)<4.5&&vz>z-30&&vz<z+110||Math.hypot(vx-x,vz-z)<12);const v=putPlayerInHeroCab(x,z,0);v.vel.set(0,0,12.5);v.gear=1;me.place(x-2.9,z+5.5,0);
-  showToast(GAR.sel?'Checker Cab \u00b7 press P or tap Pickup fare for a fare':'Yellow Cab \u00b7 press P or tap Pickup fare for a fare');}
+  showToast(GAR.sel?'Checker Cab':'Yellow Cab');}
 // ---------- race: Michigan Avenue, over the raised bascule, to Illinois St (on horseback: to the river, see startHorseRace) ----------
 function makeFinishLine(){if(RACE.line)return;const m=new THREE.MeshStandardMaterial({map:CABM.car.getObjectByProperty?null:null,roughness:.55});const c=mk(64,64);c.ctx.fillStyle='#e6e3d5';c.ctx.fillRect(0,0,64,64);c.ctx.fillStyle='#101311';c.ctx.fillRect(0,0,32,32);c.ctx.fillRect(32,32,32,32);
   const t=ctex(c);t.repeat.set(31/1.4*1.0,1);m.map=t;const pl=new THREE.Mesh(new THREE.PlaneGeometry(31,1.4),m);pl.rotation.x=-Math.PI/2;pl.position.set(RACE.x,.03,RACE.z1);pl.receiveShadow=true;scene.add(pl);RACE.line=pl;}
@@ -5441,7 +5533,7 @@ function updateGame(dt){if(PRESS.KeyP){if(FARE.phase==='idle'||FARE.phase==='com
    if(RACE.finished&&RACE.t-RACE.finishAt>6){RACE.on=false;if(RACE.line)RACE.line.visible=false;if(RACE.horse)endHorseRace();else releaseRival();}}
   const rv=GAME.rival;if(rv&&!rv.dead){if(RACE.count>0){rivalControl(rv,rv.pos.x,rv.pos.z-10,0,dt);}else if(AI.mode==='race'&&(RACE.on||RACE.finished))driveRivalRace(dt);else if(AI.mode==='hunt')driveHunter(dt);rivalWater();}
   updateFare(dt);if(FARE.phase==='onboard'&&(!GAME.rival||GAME.rival.dead)){GAME.hT=(GAME.hT||0)+dt;if(GAME.hT>3){GAME.hT=0;spawnHunter();}}else GAME.hT=0;
-  const b=$('fareBtn');b.style.display=STATE.started&&!GAR.on&&PLAYER.car&&!PLAYER.car.wagon?'block':'none';
+  const b=$('fareBtn');b.style.display=STATE.started&&!GAR.on&&!TUT.on&&PLAYER.car&&!PLAYER.car.wagon?'block':'none';
   // HUD
   let hud='';const pc=PLAYER.car;
   if(RACE.on&&RACE.horse&&PLAYER.mount&&GAME.rivalMount){const me=PLAYER.mount,rv=GAME.rivalMount;hud=(me.z<=rv.z?'1st':'2nd')+' / 2 \u00b7 '+Math.max(0,Math.round(me.z-RACE.fz))+' m to the line';}
@@ -5541,7 +5633,7 @@ async function init(){STATE.touch=(matchMedia&&matchMedia('(pointer: coarse)').m
   await step(()=>warmCity());await step(()=>warmRender());
   cityReady();}
 // the city is built: swap the loader under the cabs for RACE / DRIVE
-function cityReady(){CITY_READY=true;$('garageLoad').style.display='none';$('raceButton').style.display='';$('freeButton').style.display='';if(GAR.on&&!STATE.touch)$('raceButton').focus();dispatchEvent(new Event('tw-city-ready'));}
+function cityReady(){CITY_READY=true;$('garageLoad').style.display='none';$('raceButton').style.display='';$('freeButton').style.display='';$('tutLink').style.display='';if(GAR.on&&!STATE.touch)$('raceButton').focus();dispatchEvent(new Event('tw-city-ready'));}
 // compile every shader program a scene needs a few at a time, handing the browser a frame between batches. three r128 builds
 // all of a scene's programs in one blocking call, and on a laptop GPU (ANGLE / D3D11) that can run long enough for the
 // browser to offer to kill the page. The program depends on the material and on the object (instanced, skinned), so one
@@ -5567,7 +5659,7 @@ async function warmRender(){const rt=new THREE.WebGLRenderTarget(64,64);// (r152
   rt.dispose();}
 function applyQualityShadows(){const Q=QUAL[quality];sun.shadow.mapSize.set(Q.shadow,Q.shadow);}
 function startGame(){AUD.init();AUD.resume();$('hud').style.display='block';STATE.started=true;if(STATE.touch){$('touch').style.display='block';setupTouch();}else{STATE.skipPause=true;lockPointer();}
-  showToast(STATE.touch?'Taxi Wars \u00b7 Chicago, October 16, 1928':'Taxi Wars \u00b7 drag the mouse to look around, click to punch');last=performance.now();canvasEl.focus();}
+  showToast('Taxi Wars \u00b7 Chicago, October 16, 1928');last=performance.now();canvasEl.focus();}
 // ---------- main loop ----------
 // FRAME_HOOKS run after each rendered frame, while it is still in the drawing buffer (where a screenshot can read the canvas)
 const FRAME_HOOKS=[];
@@ -5584,7 +5676,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
   if((frameNo&7)===0)updateCabLods();
   NEAR_P.length=0;for(const p of PEDS){const h=p.h;if(h.attached||h.ragdoll||p.inCar)continue;if(Math.abs(h.pos.x-px)<48&&Math.abs(h.pos.z-pz)<48)NEAR_P.push(h);}if(!P.car&&!P.h.ragdoll&&!LRIDE.on)NEAR_P.push(P.h);
   // simulation
-  if(!AER.on&&!EDCAM.on)playerUpdate(dt);updateGame(dt);updateMounts(dt,px,pz);updateTraffic(dt,px,pz,simT);updateTrams(dt,px,pz);updateLTrains(dt,px,pz);updateBoats(dt,px,pz);
+  tutUpdate(dt);if(!AER.on&&!EDCAM.on)playerUpdate(dt);updateGame(dt);updateMounts(dt,px,pz);updateTraffic(dt,px,pz,simT);updateTrams(dt,px,pz);updateLTrains(dt,px,pz);updateBoats(dt,px,pz);
   updateBridge(dt);
   if(!AER.on)pedsUpdate(dt,px,pz,simT,camera);
   const rs=Math.ceil(dt/.0085);for(const r of AER.on?[]:RAGDOLLS.slice()){if(Math.hypot(r.p[0]-px,r.p[2]-pz)>110&&r.rest)continue;for(let i=0;i<rs;i++)r.step(dt/rs,NEAR_V);r.apply();if(r.p[1]<BED_Y-2)r.rest=true;}
@@ -5595,7 +5687,7 @@ function frame(now){requestAnimationFrame(frame);let dt=Math.min(.05,Math.max(0,
    if(v.wagon&&v.horse&&v.dist<45){const sp=v.speed?(v.mode==='ai'?v.aiSpeed:v.speed()):0;if(sp>.3){v.clop=(v.clop||0)-dt*(sp<2.4?2.2:sp<5.6?2.8:4.2);if(v.clop<=0){v.clop=1;AUD.clop(v.pos.x+Math.sin(v.yaw)*2.5,v.pos.z+Math.cos(v.yaw)*2.5,v.dist<12?.3:.2);}}}}
   // humans (LOD)
   if(!AER.on)for(const p of PEDS){const h=p.h;if(p.inCar){const v=p.inCar;const vis=v.dist<70&&v.root.visible;h.group.visible=vis;if(vis){h.steer=v.steer*2;h.update(dt);}continue;}if(h.ragdoll)continue;
-   const d=Math.hypot(h.pos.x-camera.position.x,h.pos.z-camera.position.z);const vis=d<112;h.group.visible=vis;if(!vis)continue;h.shadow=d<32;
+   const d=Math.hypot(h.pos.x-camera.position.x,h.pos.z-camera.position.z);const vis=d<112&&!TUT.on;h.group.visible=vis;if(!vis)continue;h.shadow=d<32;
    const ev=d<24?1:d<55?2:3;if(ev===1||(frameNo+((h.seed*6)|0))%ev===0)h.update(dt*ev);else{h.group.position.copy(h.pos);h.group.rotation.set(h.pitch||0,h.yaw,0,'YXZ');}}
   if(!P.h.ragdoll)P.h.update(dt);
   updateReins();
